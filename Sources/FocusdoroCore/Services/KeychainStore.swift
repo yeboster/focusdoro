@@ -32,6 +32,11 @@ public final class KeychainStore: TokenStoring, @unchecked Sendable {
         self.account = account
     }
 
+    /// Separate service so revoking Slack never touches the Todoist entry.
+    public static var slackService: String {
+        (Bundle.main.bundleIdentifier ?? "com.focusdoro.app") + ".slack"
+    }
+
     public static var defaultService: String {
         (Bundle.main.bundleIdentifier ?? "com.focusdoro.app") + ".todoist"
     }

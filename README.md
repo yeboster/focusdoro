@@ -14,8 +14,13 @@ history.
   history, feeds today's total, and posts them as
   `Focusdoro: 12 min focused on this task (stopped early, 2026-08-29 14:30).`
   Turn that off with "Log stopped sessions" in Settings.
-- The Todoist token lives only in the macOS Keychain — never in `UserDefaults`, Core
-  Data, logs, or exported history.
+- Focus mode quiets the interruptions for the length of a session: it runs your own
+  Shortcuts shortcut to switch a macOS Focus on, and snoozes Slack notifications while
+  setting your Slack status ("Focusing on {task}"). Both are optional, both are lifted
+  when the session ends or a break starts, and neither can hold up the timer.
+- The Todoist token — and the Slack user token, if you connect one — lives only in the
+  macOS Keychain — never in `UserDefaults`, Core Data, logs, or exported
+  history.
 - The task picker groups by due date, priority, or project, filters by project,
   minimum priority, and "has a date", and ranks search so whole-word matches lead.
 - Timer truth is a persisted absolute deadline, so it survives relaunch and sleep and is
@@ -60,5 +65,6 @@ editable in Settings.
 ## Docs
 
 - [Product and design spec](docs/superpowers/specs/2026-08-29-focusdoro-design.md)
+- [As-built specs](docs/specs/) — one file per feature, including [focus mode](docs/specs/focus-mode.md)
 - [Implementation plan](docs/superpowers/plans/2026-08-29-focusdoro-implementation-plan.md)
 - [Testing checklist and verification record](docs/testing-checklist.md)

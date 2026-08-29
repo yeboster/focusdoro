@@ -29,6 +29,47 @@ public enum HotKeyAction: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// How a focus session announces itself outside the app. Off by default: macOS Focus
+/// needs the user to pick their Shortcuts, and Slack needs a token.
+public struct FocusPresenceSettings: Codable, Equatable, Sendable {
+    public var macFocusEnabled: Bool
+    /// Name of a Shortcuts shortcut whose action turns the Focus on.
+    public var startShortcutName: String?
+    public var endShortcutName: String?
+    public var slackEnabled: Bool
+    public var slackStatusEnabled: Bool
+    /// `{task}` is replaced with the task title.
+    public var slackStatusTemplate: String
+    public var slackStatusEmoji: String
+
+    public init(
+        macFocusEnabled: Bool = false,
+        startShortcutName: String? = nil,
+        endShortcutName: String? = nil,
+        slackEnabled: Bool = false,
+        slackStatusEnabled: Bool = true,
+        slackStatusTemplate: String = "Focusing on {task}",
+        slackStatusEmoji: String = ":tomato:"
+    ) {
+        self.macFocusEnabled = macFocusEnabled
+        self.startShortcutName = startShortcutName
+        self.endShortcutName = endShortcutName
+        self.slackEnabled = slackEnabled
+        self.slackStatusEnabled = slackStatusEnabled
+        self.slackStatusTemplate = slackStatusTemplate
+        self.slackStatusEmoji = slackStatusEmoji
+    }
+
+    public static let `default` = FocusPresenceSettings()
+
+    /// True once the user has given macOS Focus everything it needs to run.
+    public var macFocusIsUsable: Bool {
+        macFocusEnabled
+            && !(startShortcutName ?? "").isEmpty
+            && !(endShortcutName ?? "").isEmpty
+    }
+}
+
 /// Non-sensitive preferences only. The Todoist token lives in the Keychain and
 /// must never be written here (spec §6).
 public struct AppPreferences: Codable, Equatable, Sendable {
@@ -50,11 +91,19 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     /// Whether a stopped focus session still posts its measured time to Todoist.
     /// Optional on the wire for the same backward-compatible reason as the two above.
     public var logsAbandonedTimeFlag: Bool?
+    /// Optional for the same reason: an install written before focus mode existed
+    /// decodes with nothing set and falls back to the all-off default.
+    public var focusPresenceSettings: FocusPresenceSettings?
 
     /// Time already invested is real time, so the default is to log it.
     public var logsAbandonedTime: Bool {
         get { logsAbandonedTimeFlag ?? true }
         set { logsAbandonedTimeFlag = newValue }
+    }
+
+    public var presence: FocusPresenceSettings {
+        get { focusPresenceSettings ?? .default }
+        set { focusPresenceSettings = newValue }
     }
 
     public var taskSortOrder: TaskSortOrder {
@@ -97,7 +146,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         breakAutoStartDelaySeconds: Int,
         taskSortOrderID: String? = nil,
         taskFilterCriteria: TaskFilterCriteria? = nil,
-        logsAbandonedTimeFlag: Bool? = nil
+        logsAbandonedTimeFlag: Bool? = nil,
+        focusPresenceSettings: FocusPresenceSettings? = nil
     ) {
         self.focusDurationSeconds = focusDurationSeconds
         self.shortBreakDurationSeconds = shortBreakDurationSeconds
@@ -112,6 +162,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.taskSortOrderID = taskSortOrderID
         self.taskFilterCriteria = taskFilterCriteria
         self.logsAbandonedTimeFlag = logsAbandonedTimeFlag
+        self.focusPresenceSettings = focusPresenceSettings
     }
 
     public func duration(for phase: TimerPhase) -> Int {

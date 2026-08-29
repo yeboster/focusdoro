@@ -19,6 +19,7 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: Theme.Space.l) {
                 durations
                 alerts
+                focusMode
                 shortcuts
                 account
             }
@@ -162,6 +163,94 @@ public struct SettingsView: View {
                 .toggleStyle(.switch)
                 .tint(Theme.Palette.accent)
         }
+    }
+
+    // MARK: - Focus mode
+
+    /// macOS has no public API for switching a Focus on, so the user points Focusdoro
+    /// at their own Shortcuts. Slack needs a user token of its own.
+    private var focusMode: some View {
+        section(
+            "Focus mode",
+            footnote: "macOS Focus is switched by running your own shortcuts (Shortcuts app → new shortcut → “Set Focus”). Slack needs a user token with the dnd:write and users.profile:write scopes; it is stored only in your Keychain."
+        ) {
+            toggleRow("Turn on a macOS Focus", isOn: preferences.presence.macFocusEnabled)
+            if model.preferences.presence.macFocusEnabled {
+                rowDivider
+                shortcutRow("Start shortcut", selection: preferences.presence.startShortcutName)
+                rowDivider
+                shortcutRow("End shortcut", selection: preferences.presence.endShortcutName)
+            }
+            rowDivider
+            toggleRow("Pause Slack notifications", isOn: preferences.presence.slackEnabled)
+            rowDivider
+            row("Slack token") {
+                if model.slackIsConnected {
+                    Button("Remove") { model.disconnectSlack() }
+                        .buttonStyle(SecondaryActionStyle())
+                        .fixedSize()
+                } else {
+                    HStack(spacing: Theme.Space.s) {
+                        SecureField("Paste user token", text: $model.slackTokenDraft)
+                            .textFieldStyle(.plain)
+                            .font(Theme.Font.body)
+                            .frame(width: 140)
+                            .onSubmit { Task { await model.connectSlack() } }
+                            .accessibilityLabel("Slack user token")
+                        Button("Connect") { Task { await model.connectSlack() } }
+                            .buttonStyle(SecondaryActionStyle())
+                            .fixedSize()
+                            .disabled(model.isBusy || model.slackTokenDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+            if model.preferences.presence.slackEnabled {
+                rowDivider
+                toggleRow("Set Slack status", isOn: preferences.presence.slackStatusEnabled)
+                if model.preferences.presence.slackStatusEnabled {
+                    rowDivider
+                    row("Status text") {
+                        TextField("Focusing on {task}", text: preferences.presence.slackStatusTemplate)
+                            .textFieldStyle(.plain)
+                            .font(Theme.Font.body)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 180)
+                            .accessibilityLabel("Slack status text")
+                    }
+                    rowDivider
+                    row("Status emoji") {
+                        TextField(":tomato:", text: preferences.presence.slackStatusEmoji)
+                            .textFieldStyle(.plain)
+                            .font(Theme.Font.body)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: Theme.Metric.settingsValueWidth + 20)
+                            .accessibilityLabel("Slack status emoji")
+                    }
+                }
+            }
+        }
+        .task { await model.loadAvailableShortcuts() }
+    }
+
+    /// The list comes from `shortcuts list`; a name saved earlier stays selectable even
+    /// when the CLI is unavailable, so the setting is never silently dropped.
+    private func shortcutRow(_ title: String, selection: Binding<String?>) -> some View {
+        row(title) {
+            Picker("", selection: selection) {
+                Text("None").tag(String?.none)
+                ForEach(shortcutNames(including: selection.wrappedValue), id: \.self) { name in
+                    Text(name).tag(String?.some(name))
+                }
+            }
+            .labelsHidden()
+            .frame(width: 180)
+        }
+    }
+
+    private func shortcutNames(including selected: String?) -> [String] {
+        var names = model.availableShortcuts
+        if let selected, !selected.isEmpty, !names.contains(selected) { names.insert(selected, at: 0) }
+        return names
     }
 
     // MARK: - Shortcuts

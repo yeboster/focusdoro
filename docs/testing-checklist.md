@@ -7,7 +7,7 @@ Recorded 2026-08-29 on macOS 26.6 (arm64), Apple Swift 6.3.3, Command Line Tools
 
 ```bash
 make build     # swift build (debug)
-make test      # full unit suite (202 tests, 18 suites)
+make test      # full unit suite (240 tests, 24 suites)
 make release   # swift build -c release
 make app       # ./Scripts/build-app.sh — assembles build/Focusdoro.app, ad-hoc signed
 make run       # make app && open ./build/Focusdoro.app
@@ -46,7 +46,7 @@ None of this changes app behavior, and the package converts to an Xcode target u
 
 ## Automated evidence
 
-`make test` — **202 tests in 18 suites passed**.
+`make test` — **240 tests in 24 suites passed**.
 
 | Suite | Covers |
 | --- | --- |
@@ -67,7 +67,19 @@ None of this changes app behavior, and the package converts to an Xcode target u
 | App model | routing, task selection surviving ticks, project loading and its failure fallback, persisted sort and filter, menu-bar title, stop-routes-to-confirmation, abandon keeping and logging the invested time, completion flow, retryable comment failure, disconnect keeps history, token never in preferences |
 | View rendering | every popover state, route, error state, every sort order and an empty filter, a long list on a short screen, uniform settings row widths, the completion overlay, and an overflowing task title lay out in a real `NSHostingView` at the popover width |
 | Settings round trip | a preference edited in the settings screen reaches the store and the next session, with no write when the value is unchanged |
+| Slack client | snooze minute clamping, form and JSON bodies, bearer auth, `ok:false` inside a 200, missing-scope naming, `snooze_not_active` treated as success, `429` retry, no request without a token, and no failure path carrying the token |
+| Slack status text | placeholder substitution, empty title and empty template fallbacks, truncation at Slack's 100-character limit |
+| Focus presence channels | Slack off does nothing, no token reports itself, snooze plus status for the session's length, status opt-out, release lifting both, a failed snooze lift still clearing the status, macOS Focus running the chosen shortcuts and refusing to run unconfigured |
+| Focus presence coordinator | a failing channel not stopping the others, release inert without a session, release idempotent, banner wording for one and for several failures |
+| Focus mode in the app model | starting a session engages for its length, finishing/stopping/breaking release, Slack connect storing a validated token, a rejected token discarded without leaking it, disconnect clearing everything, shortcut names offered from Shortcuts |
+| Focus mode preferences | preferences written before focus mode existed still decode to the all-off default, settings round trip, macOS Focus usable only with both shortcuts picked |
 | App composition | one status item, no titled window, idempotent popover, accessory activation policy, popover sized to the screen before it is shown |
+
+The two AppKit suites (**View rendering**, **App composition**) need a window server:
+they are skipped when `CI` is set, when `FOCUSDORO_HEADLESS=1` is set, or when the
+session is not on a console. GitHub's macOS runners report a session dictionary but have
+no window server, and touching AppKit there trips an assertion inside `CGSConnectionByID`
+that takes the whole test process down rather than failing one test.
 
 Release build: `swift build -c release --product Focusdoro` completed; the bundle was
 assembled and ad-hoc signed by `Scripts/build-app.sh`.
@@ -97,7 +109,18 @@ Automated coverage cannot exercise the AppKit shell end to end. Run these by han
 - [ ] **No pause.** There is no pause control anywhere during focus.
 - [ ] **Abandon confirmation.** `⌥⌘T` during focus opens the popover and asks for
       confirmation. Cancelling keeps the timer running with no lost time.
-- [ ] **Abandon posts nothing.** After confirming, check the Todoist task: no comment.
+- [ ] **Stopped time is logged.** After confirming, the Todoist task carries one
+      `(stopped early, …)` comment with the minutes actually spent, and today's total
+      includes them. With "Log stopped sessions" off, no comment is posted and the
+      minutes still show in local history.
+- [ ] **macOS Focus.** With a "Set Focus" shortcut picked for start and end, starting a
+      session turns the Focus on within a second or two, and finishing, stopping, or
+      starting a break turns it off. Deleting the shortcut afterwards shows the
+      "no longer exists" banner without disturbing the running timer.
+- [ ] **Slack.** With a user token connected (`dnd:write`, `users.profile:write`),
+      starting a session snoozes Slack for the session length and sets the status;
+      ending the session lifts both. Quitting mid-session also lifts them. Revoking the
+      token in Slack shows the reconnect banner, and the token never appears in it.
 - [ ] **Timer completion.** Let a focus run out: sound plays, notification appears, and
       the overlay shows on the active display.
 - [ ] **Overlay.** Overlay is centered, dismissable with the keyboard, and auto-starts

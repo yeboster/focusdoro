@@ -72,6 +72,11 @@ public final class AppModel {
     public var confirmation: PendingConfirmation?
     public var banner: BannerMessage?
     public var tokenDraft: String = ""
+    /// Slack user token being pasted. Cleared the moment it reaches the Keychain.
+    public var slackTokenDraft: String = ""
+    public private(set) var slackIsConnected = false
+    /// Shortcut names offered in the two Focus pickers, read from the Shortcuts CLI.
+    public private(set) var availableShortcuts: [String] = []
 
     // Collaborators
     public let sync: TodoistSync
@@ -82,6 +87,9 @@ public final class AppModel {
     private let notifications: NotificationPresenting
     private let clock: DateProviding
     private let calendar: Calendar
+    /// Optional: a build with neither macOS Focus nor Slack configured has none.
+    private let presenceServices: PresenceServices?
+    private var presence: PresenceCoordinator? { presenceServices?.coordinator }
 
     /// Set by the AppKit layer; the core stays free of window ownership.
     public var presentCompletionOverlay: ((FocusCompletionSummary) -> Void)?
@@ -101,7 +109,8 @@ public final class AppModel {
         preferencesStore: PreferencesStoring,
         notifications: NotificationPresenting,
         clock: DateProviding = SystemDateProvider(),
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        presence: PresenceServices? = nil
     ) {
         self.sync = sync
         self.engine = engine
@@ -111,6 +120,7 @@ public final class AppModel {
         self.notifications = notifications
         self.clock = clock
         self.calendar = calendar
+        self.presenceServices = presence
         self.preferences = preferencesStore.preferences
         self.route = sync.hasToken ? .tasks : .connect
         // The picker's ordering and filter are user choices, so they outlive a relaunch.
@@ -122,6 +132,7 @@ public final class AppModel {
 
     public func start() async {
         observeEvents()
+        slackIsConnected = ((try? presenceServices?.slackTokens.readToken()) ?? nil)?.isEmpty == false
         // Restore before anything else so a deadline already passed completes now.
         await engine.restore()
         await engine.setCompletedFocusCount(todayCompletedFocusCount())
@@ -136,6 +147,11 @@ public final class AppModel {
     }
 
     public func shutdown() {
+        if let presence {
+            // Fire and forget: termination will not wait, but a session ended by
+            // quitting should still not leave Slack snoozed for its full length.
+            Task { await presence.release() }
+        }
         tickTask?.cancel()
         eventTask?.cancel()
         tickTask = nil
@@ -244,6 +260,7 @@ public final class AppModel {
             notifications.notifyBreakComplete(nextPhase: .focus)
             await refreshSnapshot()
         case .sessionAbandoned(let sessionID, let task, let elapsed, let phase):
+            await releasePresence()
             guard phase == .focus else { break }
             let logs = preferences.logsAbandonedTime
             let outcome = await orchestrator.finishFocus(
@@ -262,6 +279,7 @@ public final class AppModel {
     }
 
     private func handleFocusFinished(sessionID: UUID, task: SelectedTask, elapsed: Int, planned: Int) async {
+        await releasePresence()
         notifications.playCompletionSound()
         let nextBreak = preferences.breakPhase(afterCompletedFocusCount: await engine.completedFocusSessions())
         notifications.notifyFocusComplete(taskTitle: task.title, nextBreak: nextBreak)
@@ -284,6 +302,7 @@ public final class AppModel {
     }
 
     private func handleTaskCompletion(sessionID: UUID, task: SelectedTask, elapsed: Int, planned: Int) async {
+        await releasePresence()
         isBusy = true
         defer { isBusy = false }
         let outcome = await orchestrator.finishFocus(
@@ -317,6 +336,70 @@ public final class AppModel {
             )
         case .pending, .notApplicable:
             break
+        }
+    }
+
+    // MARK: - Focus presence
+
+    /// Announces the session to macOS Focus and Slack. A channel that fails only
+    /// produces a banner: the timer itself is already running and never waits on it.
+    private func engagePresence(task: SelectedTask) async {
+        guard let presence else { return }
+        let snapshot = self.snapshot
+        let remaining = snapshot.remainingSeconds > 0 ? snapshot.remainingSeconds : preferences.focusDurationSeconds
+        let context = FocusPresenceContext(
+            taskTitle: task.title,
+            minutes: max(1, Int((Double(remaining) / 60).rounded(.up))),
+            endsAt: clock.now.addingTimeInterval(TimeInterval(remaining))
+        )
+        let failures = await presence.engage(context)
+        if let text = PresenceMessage.banner(for: failures) {
+            banner = BannerMessage(kind: .warning, text: text)
+        }
+    }
+
+    /// Validates the pasted Slack user token and stores it in the Keychain. Like the
+    /// Todoist flow, the draft is cleared either way so the token never lingers in view
+    /// state, and no failure message carries it.
+    public func connectSlack() async {
+        guard let services = presenceServices else { return }
+        let token = slackTokenDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        slackTokenDraft = ""
+        guard !token.isEmpty else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            try services.slackTokens.saveToken(token)
+            try await services.slack.validateToken()
+            slackIsConnected = true
+            preferences.presence.slackEnabled = true
+            banner = BannerMessage(kind: .success, text: "Slack connected.")
+        } catch {
+            try? services.slackTokens.deleteToken()
+            slackIsConnected = false
+            banner = BannerMessage(kind: .error, text: PresenceMessage.text(for: error))
+        }
+    }
+
+    public func disconnectSlack() {
+        guard let services = presenceServices else { return }
+        try? services.slackTokens.deleteToken()
+        slackIsConnected = false
+        preferences.presence.slackEnabled = false
+    }
+
+    /// Refreshes the shortcut names offered in settings. Cheap enough to call whenever
+    /// the settings screen appears, and silent when Shortcuts is unavailable.
+    public func loadAvailableShortcuts() async {
+        guard let services = presenceServices else { return }
+        availableShortcuts = await services.shortcuts.availableShortcuts()
+    }
+
+    private func releasePresence() async {
+        guard let presence else { return }
+        let failures = await presence.release()
+        if let text = PresenceMessage.banner(for: failures) {
+            banner = BannerMessage(kind: .warning, text: text)
         }
     }
 
@@ -356,16 +439,20 @@ public final class AppModel {
         await refreshSnapshot()
         route = .timer
         onRequestPopoverClose?()
+        await engagePresence(task: task)
     }
 
     public func startBreak(_ phase: TimerPhase) async {
         dismissCompletionOverlay?()
+        // A break is time away from the desk, so notifications come back for it.
+        await releasePresence()
         await engine.startBreak(phase, duration: preferences.duration(for: phase))
         await refreshSnapshot()
     }
 
     public func skipBreak() async {
         dismissCompletionOverlay?()
+        await releasePresence()
         await engine.skipBreak()
         await refreshSnapshot()
         route = .tasks

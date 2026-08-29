@@ -85,6 +85,16 @@ public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate {
             preferences: preferencesStore
         )
         let orchestrator = CompletionOrchestrator(store: sessionStore, todoist: client, clock: clock)
+
+        // Focus mode: macOS Focus through the user's Shortcuts, plus Slack DND and
+        // status. The Slack token gets its own Keychain entry, never preferences.
+        let slackTokens = KeychainStore(service: KeychainStore.slackService, account: "slack-user-token")
+        let slack = SlackClient(tokenProvider: { [slackTokens] in try slackTokens.readToken() })
+        let presence = PresenceServices.live(
+            slack: slack,
+            slackTokens: slackTokens,
+            settings: { [preferencesStore] in preferencesStore.preferences.presence }
+        )
         notificationService = NotificationService(preferences: preferencesStore)
 
         let model = AppModel(
@@ -94,7 +104,8 @@ public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate {
             store: sessionStore,
             preferencesStore: preferencesStore,
             notifications: notificationService,
-            clock: clock
+            clock: clock,
+            presence: presence
         )
         model.presentCompletionOverlay = { [weak self] summary in
             self?.overlay.present(summary)
