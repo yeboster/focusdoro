@@ -7,7 +7,7 @@ Recorded 2026-08-29 on macOS 26.6 (arm64), Apple Swift 6.3.3, Command Line Tools
 
 ```bash
 make build     # swift build (debug)
-make test      # full unit suite (161 tests, 14 suites)
+make test      # full unit suite (199 tests, 18 suites)
 make release   # swift build -c release
 make app       # ./Scripts/build-app.sh — assembles build/Focusdoro.app, ad-hoc signed
 make run       # make app && open ./build/Focusdoro.app
@@ -46,7 +46,7 @@ None of this changes app behavior, and the package converts to an Xcode target u
 
 ## Automated evidence
 
-`make test` — **161 tests in 14 suites passed**.
+`make test` — **199 tests in 18 suites passed**.
 
 | Suite | Covers |
 | --- | --- |
@@ -54,14 +54,19 @@ None of this changes app behavior, and the package converts to an Xcode target u
 | Todoist API v1 client | task and project decoding, cursor pagination, `204` close, `200` comment, `401`, `410` retired endpoint, `429` with `Retry-After`, `5xx`, retry policy bounds, no retry on `4xx` |
 | Task filtering and search | today/overdue/upcoming/undated, all-day vs zoned due dates, time-zone boundaries, diacritic-insensitive search, whole-word-first ranking, title over label over description |
 | Task sorting and filtering | due/priority/project/name sections, Inbox-first ordering, unknown-project fallback, project and priority and dated filters, filter summary, inverted Todoist priority mapping, preference round trip and backward compatibility |
-| Session store | completed/abandoned/pending/failed records, duplicate session IDs, today summary at local calendar boundaries, recent sessions ordering |
+| Session store | completed/abandoned/pending/failed records, duplicate session IDs, today summary at local calendar boundaries with completed and stopped time reported separately, recent sessions ordering |
+| Null session store | the degraded fallback used when Core Data is unavailable is a harmless no-op on every method |
+| Abandoned time accounting | a stopped session keeps its minutes locally, logs them to Todoist as a partial comment when enabled, posts nothing under a minute or with logging off, retries a failed partial comment with the recorded time, stays idempotent, and the banner names where the time went |
+| Todoist sync | connection state seeded from the token store, validate-before-save on connect, rollback of a rejected token, blank-token rejection without a network call, disconnect clearing the cache, unauthorized mapping to a rejected token, project-failure tolerance, refresh cancellation race, search over an empty list, local removal |
+| Tick cadence | one-second ticks whenever a countdown is visible, five seconds only when idle and hidden, and sleeps aligned to the next second boundary so menu-bar digits never skip |
 | Completion orchestration | exact comment string, minute rounding, one comment per completion, idempotence, close+comment, close failure, comment retry |
 | Keychain token storage | save/read/delete, overwrite, missing token, service isolation, token absent from encoded preferences |
 | App preferences | 1500/300/900/4 defaults, cadence, zero-cadence guard, `UserDefaults` round trip |
 | Global hot keys | binding serialization, duplicate bindings, missing-modifier rejection, registration-failure message mapping, Carbon modifier conversion |
 | Notification policy | preference + authorization gate, sound independence, body copy, blank-title fallback, system sound availability |
-| App model | routing, task selection surviving ticks, project loading and its failure fallback, persisted sort and filter, menu-bar title, stop-routes-to-confirmation, abandon posts nothing, completion flow, retryable comment failure, disconnect keeps history, token never in preferences |
-| View rendering | every popover state, route, error state, every sort order and an empty filter, a long list on a short screen, the completion overlay, and an overflowing task title lay out in a real `NSHostingView` at the popover width |
+| App model | routing, task selection surviving ticks, project loading and its failure fallback, persisted sort and filter, menu-bar title, stop-routes-to-confirmation, abandon keeping and logging the invested time, completion flow, retryable comment failure, disconnect keeps history, token never in preferences |
+| View rendering | every popover state, route, error state, every sort order and an empty filter, a long list on a short screen, uniform settings row widths, the completion overlay, and an overflowing task title lay out in a real `NSHostingView` at the popover width |
+| Settings round trip | a preference edited in the settings screen reaches the store and the next session, with no write when the value is unchanged |
 | App composition | one status item, no titled window, idempotent popover, accessory activation policy, popover sized to the screen before it is shown |
 
 Release build: `swift build -c release --product Focusdoro` completed; the bundle was
