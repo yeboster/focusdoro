@@ -1,5 +1,7 @@
 # Focusdoro
 
+[![CI](https://github.com/yeboster/focusdoro/actions/workflows/ci.yml/badge.svg)](https://github.com/yeboster/focusdoro/actions/workflows/ci.yml)
+
 Menu-bar-only Pomodoro timer for macOS, wired to Todoist. No Dock icon, no dashboard
 window, no backend: one `NSStatusItem`, one anchored popover, and a local Core Data
 history.
@@ -30,6 +32,9 @@ make app     # assembles build/Focusdoro.app (ad-hoc signed)
 make run     # builds and launches it
 make test    # 202 unit tests
 ```
+
+CI (`.github/workflows/ci.yml`) runs the same `make test` on `macos-15`, then assembles
+and verifies `build/Focusdoro.app` and uploads it as a build artifact.
 
 Launch the bundle rather than the raw binary: notification support needs a bundle
 identifier.

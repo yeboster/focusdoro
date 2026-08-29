@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A newer push to the same branch makes an in-flight run pointless.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report the toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      # Keyed on the manifest so a dependency change misses the cache; the Swift
+      # version is in the key because .build is not portable across toolchains.
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ hashFiles('Sources/**/*.swift', 'Tests/**/*.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-${{ hashFiles('Package.swift', 'Package.resolved') }}-
+            ${{ runner.os }}-spm-
+
+      - name: Test
+        run: make test
+
+  app:
+    name: Assemble the app bundle
+    runs-on: macos-15
+    timeout-minutes: 20
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the bundle
+        run: make app
+
+      # The app is menu-bar-only and unsandboxed: if either the LSUIElement flag or
+      # the bundle identifier goes missing, notifications and the Keychain item break
+      # at runtime rather than at build time.
+      - name: Verify the bundle
+        run: |
+          set -euo pipefail
+          APP=build/Focusdoro.app
+          test -x "$APP/Contents/MacOS/Focusdoro"
+          plutil -lint "$APP/Contents/Info.plist"
+          test "$(defaults read "$PWD/$APP/Contents/Info" CFBundleIdentifier)" = "so.bon.focusdoro"
+          test "$(defaults read "$PWD/$APP/Contents/Info" LSUIElement)" = "1"
+          codesign --verify --strict --verbose=2 "$APP"
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Focusdoro-app
+          path: build/Focusdoro.app
+          retention-days: 14
+          if-no-files-found: error
