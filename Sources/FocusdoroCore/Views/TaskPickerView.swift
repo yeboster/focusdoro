@@ -226,11 +226,7 @@ public struct TaskPickerView: View {
         .scrollIndicators(.never)
     }
 
-    /// The list is the only part of the picker that can give height back, so it absorbs
-    /// whatever a short screen cannot fit.
-    private var listCap: CGFloat {
-        max(160, min(Theme.Metric.listMaxHeight, popoverMaxHeight - Theme.Metric.pickerChromeHeight))
-    }
+    private var listCap: CGFloat { Theme.Metric.listCap(forPopoverHeight: popoverMaxHeight) }
 
     private func statusBlock(icon: String, title: String, detail: String?, retry: Bool) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {

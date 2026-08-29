@@ -28,7 +28,7 @@ macOS 14 or later, Swift 6 toolchain. Xcode is not required.
 ```bash
 make app     # assembles build/Focusdoro.app (ad-hoc signed)
 make run     # builds and launches it
-make test    # 199 unit tests
+make test    # 202 unit tests
 ```
 
 Launch the bundle rather than the raw binary: notification support needs a bundle

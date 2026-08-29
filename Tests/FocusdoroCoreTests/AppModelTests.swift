@@ -307,7 +307,11 @@ struct AppModelTests {
         await harness.model.startFocus()
         harness.clock.advance(by: 1500)
         await harness.engine.tick()
-        try await waitUntil("the failed comment surfaces a banner") { harness.model.banner != nil }
+        // The banner is set before the history reload finishes, so waiting on the
+        // banner alone races the record this test then reads.
+        try await waitUntil("the failed comment surfaces a banner and its session") {
+            harness.model.banner != nil && !harness.model.recentSessions.isEmpty
+        }
 
         let banner = try #require(harness.model.banner)
         #expect(banner.kind == .warning)

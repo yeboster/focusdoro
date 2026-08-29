@@ -28,9 +28,7 @@ public struct SettingsView: View {
         .scrollIndicators(.never)
     }
 
-    private var listCap: CGFloat {
-        max(160, min(Theme.Metric.listMaxHeight, popoverMaxHeight - Theme.Metric.pickerChromeHeight))
-    }
+    private var listCap: CGFloat { Theme.Metric.listCap(forPopoverHeight: popoverMaxHeight) }
 
     // MARK: - Section scaffolding
 

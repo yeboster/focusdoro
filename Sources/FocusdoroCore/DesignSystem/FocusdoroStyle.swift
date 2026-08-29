@@ -33,6 +33,13 @@ public enum Theme {
         public static let popoverFallbackHeight: CGFloat = 700
         public static let actionHeight: CGFloat = 42
         public static let settingsRowHeight: CGFloat = 38
+
+        /// A scrolling list is the only part of the popover that can give height back,
+        /// so it absorbs whatever a short screen cannot fit. `ScrollView` has no
+        /// intrinsic height, hence both a floor and a ceiling.
+        public static func listCap(forPopoverHeight height: CGFloat) -> CGFloat {
+            max(160, min(listMaxHeight, height - pickerChromeHeight))
+        }
         public static let settingsValueWidth: CGFloat = 72
         public static let rowHeight: CGFloat = 52
         public static let progressHeight: CGFloat = 6

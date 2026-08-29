@@ -115,11 +115,13 @@ struct TodoistSyncTests {
 
     @Test("Refreshing without a token routes to disconnected instead of calling the API")
     func refreshWithoutTokenSkipsTheNetwork() async {
-        let (sync, _, _) = makeSync()
+        let (sync, todoist, _) = makeSync()
         await sync.refresh()
         #expect(sync.connection == .disconnected)
         #expect(sync.loadState == .idle)
-        #expect(StubURLProtocol.requestCount == 0)
+        // Counted on the client double, not on `StubURLProtocol`, whose counter is
+        // global state shared with the suites running alongside this one.
+        #expect(await todoist.listTasksCount == 0)
     }
 
     @Test("A failed refresh reports the mapped error and rejects the token on unauthorized")
@@ -219,6 +221,91 @@ struct TodoistSyncTests {
 
         #expect(sync.allTasks.isEmpty)
         #expect(sync.groups.today.isEmpty)
+    }
+
+    // MARK: - Cached projections
+
+    /// `sections`, `searchResults`, `projectName`, and `projectsWithTasks` are memoized
+    /// because a SwiftUI body reads them far more often than their inputs change. Every
+    /// input that changes the answer must therefore invalidate the cache.
+    @Test("Every input that changes a projection invalidates its cache")
+    func projectionsInvalidate() async {
+        let todoist = FakeTodoist(tasks: [
+            Fixture.task("1", "Ship it", due: "2026-08-29", priority: 4, projectID: "p-work"),
+            Fixture.task("2", "Water the plants", priority: 1, projectID: "p-home"),
+        ])
+        await todoist.setProjects([
+            TodoistProject(id: "p-work", name: "Work"),
+            TodoistProject(id: "p-home", name: "Home"),
+        ])
+        let clock = MutableDateProvider(now: Fixture.date("2026-08-29 09:00:00"))
+        let sync = TodoistSync(
+            client: todoist, tokenStore: InMemoryTokenStore(token: "t"),
+            clock: clock, calendar: Fixture.calendar()
+        )
+        await sync.refresh()
+
+        let firstRead = sync.sections
+        #expect(sync.sections == firstRead, "a repeated read with no change must be stable")
+        #expect(sync.projectName(id: "p-work") == "Work")
+        #expect(sync.projectsWithTasks.count == 2)
+
+        // Sort order.
+        sync.sortOrder = .priority
+        let byPriority = sync.sections
+        #expect(byPriority != firstRead)
+
+        // Filter.
+        sync.filter = TaskFilterCriteria(projectID: "p-home", minimumPriority: .p4, hidesUndated: false)
+        #expect(sync.sections.flatMap(\.tasks).map(\.id) == ["2"])
+
+        // Search query, which reads the other cached projection.
+        sync.searchQuery = "plants"
+        #expect(sync.searchResults.map(\.id) == ["2"])
+        sync.searchQuery = "ship"
+        // The project filter still applies on top of the search.
+        #expect(sync.searchResults.isEmpty)
+
+        // The task list itself.
+        sync.filter = .none
+        sync.searchQuery = ""
+        sync.sortOrder = .dueDate
+        sync.removeLocally(taskID: "1")
+        #expect(sync.sections.flatMap(\.tasks).map(\.id) == ["2"])
+        #expect(sync.projectsWithTasks.map(\.id) == ["p-home"])
+    }
+
+    @Test("Crossing midnight re-sections the same tasks")
+    func projectionsFollowTheDay() async {
+        let clock = MutableDateProvider(now: Fixture.date("2026-08-29 09:00:00"))
+        let sync = TodoistSync(
+            client: FakeTodoist(tasks: [Fixture.task("1", "Ship it", due: "2026-08-29")]),
+            tokenStore: InMemoryTokenStore(token: "t"),
+            clock: clock, calendar: Fixture.calendar()
+        )
+        await sync.refresh()
+        #expect(sync.sections.first?.title == "Today")
+
+        // Same task, next day: it is overdue now, so a stale cache would lie.
+        clock.advance(by: 24 * 60 * 60)
+        #expect(sync.sections.first?.title == "Overdue")
+    }
+
+    @Test("A refresh that renames a project is visible to the name lookup")
+    func projectNamesFollowRefresh() async {
+        let todoist = FakeTodoist(tasks: [Fixture.task("1", "Ship it", projectID: "p-work")])
+        await todoist.setProjects([TodoistProject(id: "p-work", name: "Work")])
+        let sync = TodoistSync(
+            client: todoist, tokenStore: InMemoryTokenStore(token: "t"),
+            clock: MutableDateProvider(now: Fixture.date("2026-08-29 09:00:00")),
+            calendar: Fixture.calendar()
+        )
+        await sync.refresh()
+        #expect(sync.projectName(id: "p-work") == "Work")
+
+        await todoist.setProjects([TodoistProject(id: "p-work", name: "Work (renamed)")])
+        await sync.refresh()
+        #expect(sync.projectName(id: "p-work") == "Work (renamed)")
     }
 }
 

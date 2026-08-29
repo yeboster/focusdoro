@@ -108,7 +108,10 @@ actor FakeTodoist: TodoistAPI {
     func setValidateError(_ value: TodoistError?) { validateError = value }
     func setListTasksDelay(seconds: Double) { listTasksDelayNanoseconds = UInt64(seconds * 1_000_000_000) }
 
+    private(set) var listTasksCount = 0
+
     func listTasks() async throws -> [TodoistTask] {
+        listTasksCount += 1
         if listTasksDelayNanoseconds > 0 { try? await Task.sleep(nanoseconds: listTasksDelayNanoseconds) }
         return tasks
     }

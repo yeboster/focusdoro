@@ -7,7 +7,7 @@ Recorded 2026-08-29 on macOS 26.6 (arm64), Apple Swift 6.3.3, Command Line Tools
 
 ```bash
 make build     # swift build (debug)
-make test      # full unit suite (199 tests, 18 suites)
+make test      # full unit suite (202 tests, 18 suites)
 make release   # swift build -c release
 make app       # ./Scripts/build-app.sh — assembles build/Focusdoro.app, ad-hoc signed
 make run       # make app && open ./build/Focusdoro.app
@@ -46,7 +46,7 @@ None of this changes app behavior, and the package converts to an Xcode target u
 
 ## Automated evidence
 
-`make test` — **199 tests in 18 suites passed**.
+`make test` — **202 tests in 18 suites passed**.
 
 | Suite | Covers |
 | --- | --- |

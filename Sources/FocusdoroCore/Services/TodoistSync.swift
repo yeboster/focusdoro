@@ -22,8 +22,8 @@ public enum TaskLoadState: Equatable, Sendable {
 @MainActor
 @Observable
 public final class TodoistSync {
-    public private(set) var allTasks: [TodoistTask] = []
-    public private(set) var projects: [TodoistProject] = []
+    public private(set) var allTasks: [TodoistTask] = [] { didSet { revision &+= 1 } }
+    public private(set) var projects: [TodoistProject] = [] { didSet { revision &+= 1 } }
     public private(set) var groups = TaskGroups()
     public private(set) var loadState: TaskLoadState = .idle
     public private(set) var connection: ConnectionState = .disconnected
@@ -40,6 +40,39 @@ public final class TodoistSync {
     private let clock: DateProviding
     private var calendar: Calendar
     private var inFlight: Task<Void, Never>?
+
+    /// Grouping, sorting, and filtering run over every active task on every SwiftUI
+    /// body evaluation, which is far more often than the inputs actually change.
+    /// These caches are `@ObservationIgnored` so filling one during a body evaluation
+    /// cannot invalidate the view that is mid-render.
+    @ObservationIgnored private var revision = 0
+    @ObservationIgnored private var sectionCache: (key: ProjectionKey, value: [TaskSection])?
+    @ObservationIgnored private var searchCache: (key: ProjectionKey, value: [TodoistTask])?
+    @ObservationIgnored private var projectIndex: (revision: Int, byID: [String: TodoistProject])?
+    @ObservationIgnored private var projectsWithTasksCache: (revision: Int, value: [TodoistProject])?
+
+    private struct ProjectionKey: Equatable {
+        var revision: Int
+        var sort: TaskSortOrder
+        var filter: TaskFilterCriteria
+        var query: String
+        /// Sections are relative to "today", so a day boundary must invalidate them.
+        var day: Date
+    }
+
+    /// Reads the observed inputs (so a SwiftUI body still depends on them) and pairs
+    /// them with the revision the caches are keyed by.
+    private func projectionKey() -> ProjectionKey {
+        _ = allTasks
+        _ = projects
+        return ProjectionKey(
+            revision: revision,
+            sort: sortOrder,
+            filter: filter,
+            query: searchQuery,
+            day: calendar.startOfDay(for: clock.now)
+        )
+    }
 
     public init(
         client: TodoistAPI,
@@ -59,12 +92,18 @@ public final class TodoistSync {
     /// Search runs over every active task, then the picker's own filter narrows it, so
     /// a filtered view never hides a task the user explicitly searched for by name.
     public var searchResults: [TodoistTask] {
-        TaskOrganizer.apply(filter, to: TaskFilter.search(searchQuery, in: allTasks), calendar: calendar)
+        let key = projectionKey()
+        if let searchCache, searchCache.key == key { return searchCache.value }
+        let value = TaskOrganizer.apply(filter, to: TaskFilter.search(searchQuery, in: allTasks), calendar: calendar)
+        searchCache = (key, value)
+        return value
     }
 
     /// The sections the picker renders when not searching.
     public var sections: [TaskSection] {
-        TaskOrganizer.sections(
+        let key = projectionKey()
+        if let sectionCache, sectionCache.key == key { return sectionCache.value }
+        let value = TaskOrganizer.sections(
             tasks: allTasks,
             projects: projects,
             criteria: filter,
@@ -72,19 +111,32 @@ public final class TodoistSync {
             now: clock.now,
             calendar: calendar
         )
+        sectionCache = (key, value)
+        return value
     }
 
+    /// Every picker row asks for its project name, so the linear scan is indexed once
+    /// per refresh instead of once per row.
     public func projectName(id: String?) -> String? {
         guard let id else { return nil }
-        return projects.first { $0.id == id }?.name
+        _ = projects
+        if projectIndex?.revision != revision {
+            projectIndex = (revision, Dictionary(projects.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }))
+        }
+        return projectIndex?.byID[id]?.name
     }
 
     public var selectedProjectName: String? { projectName(id: filter.projectID) }
 
     /// Projects that actually hold an active task, Inbox first.
     public var projectsWithTasks: [TodoistProject] {
+        _ = allTasks
+        _ = projects
+        if let projectsWithTasksCache, projectsWithTasksCache.revision == revision {
+            return projectsWithTasksCache.value
+        }
         let ids = Set(allTasks.compactMap(\.projectID))
-        return projects
+        let value = projects
             .filter { ids.contains($0.id) }
             .sorted { left, right in
                 if (left.isInboxProject ?? false) != (right.isInboxProject ?? false) {
@@ -92,6 +144,8 @@ public final class TodoistSync {
                 }
                 return left.name.localizedStandardCompare(right.name) == .orderedAscending
             }
+        projectsWithTasksCache = (revision, value)
+        return value
     }
 
     public var isSearching: Bool {
