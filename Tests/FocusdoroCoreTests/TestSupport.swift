@@ -212,8 +212,16 @@ func waitUntil(
 /// down. These suites are therefore skipped where no session exists, and the manual
 /// checklist in `docs/testing-checklist.md` covers that ground on a real desktop.
 enum TestEnvironment {
+    /// AppKit traps in `CGSConnectionByID` when there is no window server, which takes
+    /// the whole test process down rather than failing one test. GitHub's macOS runners
+    /// report a session dictionary but are not attached to a console, so the AppKit
+    /// suites are local-only and the checklist in docs/testing-checklist.md covers them.
     static let hasWindowServer: Bool = {
-        if ProcessInfo.processInfo.environment["FOCUSDORO_HEADLESS"] == "1" { return false }
-        return CGSessionCopyCurrentDictionary() != nil
+        let environment = ProcessInfo.processInfo.environment
+        if environment["FOCUSDORO_HEADLESS"] == "1" { return false }
+        if environment["CI"] != nil { return false }
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return session["kCGSSessionOnConsoleKey"] as? Bool == true
     }()
 }
+
