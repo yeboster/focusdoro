@@ -1,4 +1,5 @@
 import Testing
+import CoreGraphics
 import Foundation
 @testable import FocusdoroCore
 
@@ -202,4 +203,17 @@ func waitUntil(
         try await Task.sleep(nanoseconds: 2_000_000)
     }
     Issue.record("Timed out waiting for: \(description)")
+}
+
+
+/// Anything that draws — `NSHostingView`, `NSStatusItem`, `NSSound` — needs a window
+/// server. A headless CI runner has none, and touching AppKit there does not throw:
+/// it trips an assertion inside `CGSConnectionByID` and takes the whole test process
+/// down. These suites are therefore skipped where no session exists, and the manual
+/// checklist in `docs/testing-checklist.md` covers that ground on a real desktop.
+enum TestEnvironment {
+    static let hasWindowServer: Bool = {
+        if ProcessInfo.processInfo.environment["FOCUSDORO_HEADLESS"] == "1" { return false }
+        return CGSessionCopyCurrentDictionary() != nil
+    }()
 }

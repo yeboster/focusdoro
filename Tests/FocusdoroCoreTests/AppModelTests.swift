@@ -479,7 +479,7 @@ struct AppModelTests {
     }
 }
 
-@Suite("App composition")
+@Suite("App composition", .enabled(if: TestEnvironment.hasWindowServer))
 @MainActor
 struct AppCompositionSmokeTests {
     @Test("Starting the menu bar controller creates exactly one status item and no window")

@@ -7,7 +7,7 @@ import Testing
 /// evaluated when something hosts them, so without this the view layer would have no
 /// automated coverage at all: a crash or an unsatisfiable layout would surface only
 /// when a human opened the popover.
-@Suite("View rendering")
+@Suite("View rendering", .enabled(if: TestEnvironment.hasWindowServer))
 @MainActor
 struct ViewRenderingTests {
     private func measure(_ view: some View) -> NSSize {

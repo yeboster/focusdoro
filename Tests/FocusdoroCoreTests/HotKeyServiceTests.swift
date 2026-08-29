@@ -157,7 +157,10 @@ struct NotificationPolicyTests {
     func soundsExist() throws {
         #expect(NotificationService.availableSoundNames.contains(AppPreferences.default.soundIdentifier))
         for name in NotificationService.availableSoundNames {
-            #expect(NSSound(named: name) != nil, "\(name) is not a system sound")
+            // NSSound needs the window server, so this only means anything on a desktop.
+            if TestEnvironment.hasWindowServer {
+                #expect(NSSound(named: name) != nil, "\(name) is not a system sound")
+            }
         }
     }
 }
