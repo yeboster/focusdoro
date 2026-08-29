@@ -96,6 +96,9 @@ actor FakeTodoist: TodoistAPI {
     private var commentError: TodoistError?
     private var validateError: TodoistError?
     private var projectsError: TodoistError?
+    /// Artificial delay before `listTasks` returns, so a test can force one refresh to
+    /// still be in flight when a second one starts (cancellation races).
+    private var listTasksDelayNanoseconds: UInt64 = 0
 
     init(tasks: [TodoistTask] = []) { self.tasks = tasks }
 
@@ -103,8 +106,12 @@ actor FakeTodoist: TodoistAPI {
     func setCloseError(_ value: TodoistError?) { closeError = value }
     func setCommentError(_ value: TodoistError?) { commentError = value }
     func setValidateError(_ value: TodoistError?) { validateError = value }
+    func setListTasksDelay(seconds: Double) { listTasksDelayNanoseconds = UInt64(seconds * 1_000_000_000) }
 
-    func listTasks() async throws -> [TodoistTask] { tasks }
+    func listTasks() async throws -> [TodoistTask] {
+        if listTasksDelayNanoseconds > 0 { try? await Task.sleep(nanoseconds: listTasksDelayNanoseconds) }
+        return tasks
+    }
 
     func closeTask(id: String) async throws {
         closedTaskIDs.append(id)

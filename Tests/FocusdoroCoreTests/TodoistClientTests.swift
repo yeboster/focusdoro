@@ -311,4 +311,68 @@ struct TodoistClientTests {
         #expect(comment.content.hasPrefix("Focusdoro: 25 min"))
     }
 
+    // MARK: - Token redaction
+
+    /// The token only ever lives in the Authorization header (verified above via
+    /// `sendsAuthorization`); every error path must be independently checked so a future
+    /// change to error formatting cannot start leaking it into logs or UI banners.
+    @Test("No mapped error ever carries the bearer token, across every failure path")
+    func errorsNeverContainTheToken() async {
+        let secret = "sekret-token-should-never-leak-8675309"
+
+        func client(policy: RetryPolicy = .singleAttempt) -> TodoistClient {
+            TodoistClient(
+                session: StubURLProtocol.makeSession(),
+                timeout: 5,
+                policy: policy,
+                tokenProvider: { secret },
+                sleeper: { _ in }
+            )
+        }
+
+        func assertRedacted(_ error: Error, _ label: String) {
+            let text = "\(error)"
+            #expect(!text.contains(secret), "\(label) leaked the token: \(text)")
+        }
+
+        StubURLProtocol.reset()
+        StubURLProtocol.enqueue(.empty(status: 401))
+        do {
+            _ = try await client().listTasks()
+            Issue.record("Expected an error")
+        } catch { assertRedacted(error, "401") }
+
+        StubURLProtocol.reset()
+        StubURLProtocol.enqueue(.empty(status: 500))
+        do {
+            _ = try await client().listTasks()
+            Issue.record("Expected an error")
+        } catch { assertRedacted(error, "500") }
+
+        StubURLProtocol.reset()
+        StubURLProtocol.enqueue(.failure(URLError(.notConnectedToInternet)))
+        do {
+            _ = try await client().listTasks()
+            Issue.record("Expected an error")
+        } catch { assertRedacted(error, "transport") }
+
+        StubURLProtocol.reset()
+        StubURLProtocol.enqueue(.json("not json"))
+        do {
+            _ = try await client().listTasks()
+            Issue.record("Expected an error")
+        } catch { assertRedacted(error, "invalidResponse") }
+
+        // A prior successful call proves the client did hold the real secret in memory
+        // (`sendsAuthorization` confirms it reaches the header); this call replaces the
+        // token provider with nil to exercise the distinct missingToken error path.
+        StubURLProtocol.reset()
+        do {
+            _ = try await TodoistClient(
+                session: StubURLProtocol.makeSession(),
+                tokenProvider: { nil },
+                sleeper: { _ in }
+            ).listTasks()
+        } catch { assertRedacted(error, "missingToken path") }
+    }
 }

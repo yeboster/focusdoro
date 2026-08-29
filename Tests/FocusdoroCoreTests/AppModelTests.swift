@@ -354,6 +354,125 @@ struct AppModelTests {
         #expect(try harness.tokens.readToken() == "super-secret-token")
         #expect(harness.model.tokenDraft.isEmpty)
     }
+
+    @Test("Starting the offered break dismisses the completion overlay and begins the break countdown")
+    func startBreakDismissesOverlayAndBeginsCountdown() async throws {
+        let harness = try Harness()
+        await harness.model.select(task: Fixture.task("task-1", "Write the handoff doc"))
+        await harness.model.startFocus()
+        harness.clock.advance(by: 1500)
+        await harness.engine.tick()
+        await harness.model.handleSystemWake()
+        #expect(harness.model.snapshot.state == .breakPrompt(next: .shortBreak))
+
+        var dismissed = false
+        harness.model.dismissCompletionOverlay = { dismissed = true }
+        await harness.model.startBreak(.shortBreak)
+
+        #expect(dismissed)
+        #expect(harness.model.snapshot.state == .shortBreaking)
+    }
+
+    @Test("Skipping the offered break dismisses the overlay, returns to idle, and routes to the task list")
+    func skipBreakDismissesOverlayAndReturnsToTasks() async throws {
+        let harness = try Harness()
+        await harness.model.select(task: Fixture.task("task-1", "Write the handoff doc"))
+        await harness.model.startFocus()
+        harness.clock.advance(by: 1500)
+        await harness.engine.tick()
+        await harness.model.handleSystemWake()
+        #expect(harness.model.snapshot.state == .breakPrompt(next: .shortBreak))
+
+        var dismissed = false
+        harness.model.dismissCompletionOverlay = { dismissed = true }
+        await harness.model.skipBreak()
+
+        #expect(dismissed)
+        #expect(harness.model.snapshot.state == .idle)
+        #expect(harness.model.route == .tasks)
+    }
+
+    @Test("Dismissing the banner clears it without touching anything else")
+    func dismissBannerClearsIt() throws {
+        let harness = try Harness()
+        harness.model.banner = BannerMessage(kind: .info, text: "Something happened.")
+
+        harness.model.dismissBanner()
+
+        #expect(harness.model.banner == nil)
+    }
+
+    @Test("Reloading history alone, without a fresh session, still picks up sessions written directly to the store")
+    func reloadHistoryPicksUpExternalWrites() throws {
+        let harness = try Harness()
+        #expect(harness.model.recentSessions.isEmpty)
+
+        let session = SessionRecord(
+            taskID: "task-1",
+            taskTitleSnapshot: "Write the handoff doc",
+            startedAt: Fixture.date("2026-08-29 09:00:00"),
+            endedAt: Fixture.date("2026-08-29 09:25:00"),
+            plannedDurationSeconds: 1500,
+            elapsedDurationSeconds: 1500,
+            kind: .focus,
+            status: .completed,
+            todoistCommentStatus: .posted,
+            createdAt: Fixture.date("2026-08-29 09:00:00")
+        )
+        try harness.store.insertSession(session)
+        // Nothing refreshes the observable copies until this is called explicitly.
+        #expect(harness.model.recentSessions.isEmpty)
+
+        harness.model.reloadHistory()
+
+        #expect(harness.model.recentSessions.count == 1)
+        #expect(harness.model.todaySummary.completedFocusSessions == 1)
+    }
+
+    @Test("Requesting then confirming task completion closes the Todoist task, drops it locally, and bans a success message")
+    func requestAndConfirmCompleteTaskEndToEnd() async throws {
+        let harness = try Harness()
+        await harness.todoist.setTasks([Fixture.task("task-1", "Write the handoff doc")])
+        await harness.model.start()
+        #expect(harness.model.sync.allTasks.count == 1)
+
+        await harness.model.select(task: Fixture.task("task-1", "Write the handoff doc"))
+        await harness.model.startFocus()
+        harness.clock.advance(by: 600)
+
+        harness.model.requestCompleteTask()
+        #expect(harness.model.confirmation == .completeTask)
+        #expect(harness.model.snapshot.state == .focusing)
+
+        await harness.model.confirmCompleteTask()
+        try await waitUntil("the completed task is recorded") { harness.model.recentSessions.count == 1 }
+
+        #expect(harness.model.confirmation == nil)
+        #expect(await harness.todoist.closeCount == 1)
+        #expect(await harness.todoist.commentCount == 1)
+        // The picker must not keep offering a task that was just closed.
+        #expect(harness.model.sync.allTasks.isEmpty)
+        #expect(harness.model.banner?.kind == .success)
+        #expect(harness.model.banner?.text.contains("Write the handoff doc") == true)
+
+        let saved = try #require(harness.model.recentSessions.first)
+        #expect(saved.status == .completed)
+        #expect(saved.elapsedDurationSeconds == 600)
+    }
+
+    @Test("Waking after sleeping past the deadline completes the focus session immediately, not on the next tick")
+    func systemWakeCompletesAnElapsedDeadline() async throws {
+        let harness = try Harness()
+        await harness.model.select(task: Fixture.task("task-1", "Write the handoff doc"))
+        await harness.model.startFocus()
+
+        // Simulate the machine sleeping through the entire session.
+        harness.clock.advance(by: 1500)
+        await harness.model.handleSystemWake()
+
+        #expect(harness.model.snapshot.state == .breakPrompt(next: .shortBreak))
+        #expect(harness.model.snapshot.completedFocusCount == 1)
+    }
 }
 
 @Suite("App composition")

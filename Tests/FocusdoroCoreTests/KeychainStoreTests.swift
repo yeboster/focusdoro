@@ -147,4 +147,39 @@ struct AppPreferencesTests {
         #expect(preferences.duration(for: .shortBreak) == 300)
         #expect(preferences.duration(for: .longBreak) == 900)
     }
+
+    @Test("Preferences written by an older build, missing the newer optional fields, still decode")
+    func decodesOlderPreferencesFormat() throws {
+        // Simulates a JSON blob from before taskSortOrderID / taskFilterCriteria /
+        // logsAbandonedTimeFlag existed: the three keys are absent entirely, not null.
+        let encoded = try JSONEncoder().encode(AppPreferences.default)
+        var dict = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        dict.removeValue(forKey: "taskSortOrderID")
+        dict.removeValue(forKey: "taskFilterCriteria")
+        dict.removeValue(forKey: "logsAbandonedTimeFlag")
+        let olderData = try JSONSerialization.data(withJSONObject: dict)
+
+        let decoded = try JSONDecoder().decode(AppPreferences.self, from: olderData)
+
+        #expect(decoded.focusDurationSeconds == AppPreferences.default.focusDurationSeconds)
+        // Every field the older build never wrote falls back to its documented default.
+        #expect(decoded.taskSortOrder == .dueDate)
+        #expect(decoded.taskFilter == .none)
+        #expect(decoded.logsAbandonedTime == true)
+    }
+
+    @Test("A cadence of one means every completed focus session is a long break")
+    func cadenceOfOne() {
+        var preferences = AppPreferences.default
+        preferences.longBreakCadence = 1
+        #expect(preferences.breakPhase(afterCompletedFocusCount: 1) == .longBreak)
+        #expect(preferences.breakPhase(afterCompletedFocusCount: 2) == .longBreak)
+    }
+
+    @Test("A negative cadence degrades to short breaks instead of a nonsensical modulus")
+    func negativeCadence() {
+        var preferences = AppPreferences.default
+        preferences.longBreakCadence = -1
+        #expect(preferences.breakPhase(afterCompletedFocusCount: 4) == .shortBreak)
+    }
 }

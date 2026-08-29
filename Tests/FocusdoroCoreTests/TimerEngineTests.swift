@@ -317,4 +317,37 @@ struct TimerEngineTests {
         await engine.selectTask(Fixture.task)
         #expect(prefs.preferences.lastSelectedTaskID == "task-1")
     }
+
+    @Test("Skipping a break is ignored outside the break prompt")
+    func skipBreakOnlyValidFromPrompt() async {
+        let (engine, _, _) = makeEngine()
+
+        // Idle: nothing to skip.
+        await engine.skipBreak()
+        #expect(await engine.currentState() == .idle)
+
+        // Mid-focus: skipping must not tear down the running session.
+        await engine.startFocus(task: Fixture.task, duration: 100)
+        await engine.skipBreak()
+        var snapshot = await engine.snapshot()
+        #expect(snapshot.state == .focusing)
+        #expect(snapshot.remainingSeconds == 100)
+
+        // Mid-break: same guard applies; only the prompt itself can be skipped.
+        _ = await engine.confirmAbandon()
+        await engine.startBreak(.shortBreak, duration: 60)
+        await engine.skipBreak()
+        snapshot = await engine.snapshot()
+        #expect(snapshot.state == .shortBreaking)
+    }
+
+    @Test("Restoring with nothing persisted leaves the engine idle")
+    func restoreWithNothingPersistedIsNoop() async {
+        let persistence = InMemoryTimerStateStore()
+        let (engine, _, _) = makeEngine(persistence: persistence)
+        await engine.restore()
+        let snapshot = await engine.snapshot()
+        #expect(snapshot.state == .idle)
+        #expect(snapshot.task == nil)
+    }
 }

@@ -214,3 +214,35 @@ struct SessionStoreTests {
         #expect(model.versionIdentifiers.contains("1"))
     }
 }
+
+// MARK: - NullSessionStore
+
+/// Last-resort store used when Core Data itself fails to load (see
+/// `AppLifecycleCoordinator.buildGraph`). Every method must be a harmless no-op so the
+/// rest of the app can keep running with degraded history instead of crashing.
+@Suite("Null session store")
+struct NullSessionStoreTests {
+    @Test("Writes silently succeed and reads report nothing, so the app never crashes on a degraded store")
+    func actsAsAHarmlessSink() throws {
+        let store = NullSessionStore()
+        let record = SessionRecord(
+            taskID: "task-1",
+            taskTitleSnapshot: "Write the handoff doc",
+            startedAt: Fixture.date("2026-08-29 09:00:00"),
+            endedAt: Fixture.date("2026-08-29 09:25:00"),
+            plannedDurationSeconds: 1500,
+            elapsedDurationSeconds: 1500,
+            kind: .focus,
+            status: .completed,
+            createdAt: Fixture.date("2026-08-29 09:00:00")
+        )
+
+        try store.insertSession(record)
+        try store.updateSession(record)
+        #expect(try store.session(id: record.id) == nil)
+        try store.markCommentStatus(sessionID: record.id, status: .posted, commentID: "c-1")
+        #expect(try store.recentSessions(limit: 10).isEmpty)
+        #expect(try store.sessionsNeedingCommentRetry().isEmpty)
+        #expect(try store.todaySummary(now: Fixture.date("2026-08-29 18:00:00"), calendar: Fixture.calendar()) == TodaySummary())
+    }
+}
