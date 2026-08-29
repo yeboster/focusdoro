@@ -156,32 +156,53 @@ struct ViewRenderingTests {
         }
     }
 
-    @Test("Settings rows all span the popover width")
+    @Test("Settings cards all span the popover width")
     func settingsRowsAreUniform() {
         // The Alerts toggles used to hug their own content, so each card was a
-        // different width. Every row must fill the popover instead.
+        // different width. Rendering settings on a transparent ground makes the cards
+        // the only fully opaque scan lines; every one of them must span the popover.
         for soundEnabled in [true, false] {
             let model = AppModel.preview(route: .settings)
             model.preferences.soundEnabled = soundEnabled
             let host = NSHostingView(
-                rootView: PopoverRoot(model: model, maxHeight: Theme.Metric.popoverFallbackHeight)
+                rootView: SettingsView(model: model)
+                    .environment(\.popoverMaxHeight, Theme.Metric.popoverFallbackHeight * 8)
                     .frame(width: Theme.Metric.popoverWidth)
             )
+            host.frame = NSRect(x: 0, y: 0, width: Theme.Metric.popoverWidth, height: host.fittingSize.height)
             host.layoutSubtreeIfNeeded()
             host.layout()
 
-            let cards = Self.leafFrames(in: host).filter { $0.height >= Theme.Metric.settingsRowHeight - 1 }
-            #expect(!cards.isEmpty, "settings rendered no rows")
-            let widths = Set(cards.map { Int($0.width.rounded()) })
-            #expect(widths.count <= 2, "settings row widths differ: \(widths.sorted())")
-        }
-    }
+            guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+                Issue.record("settings produced no bitmap")
+                return
+            }
+            host.cacheDisplay(in: host.bounds, to: rep)
 
-    /// Frames of the deepest hosted subviews, in the hosting view's coordinate space.
-    private static func leafFrames(in view: NSView) -> [CGRect] {
-        view.subviews.flatMap { child -> [CGRect] in
-            let nested = leafFrames(in: child)
-            return nested.isEmpty ? [view.convert(child.bounds, from: child)] : nested.map { view.convert($0, from: child) }
+            var cardSpans: [Int] = []
+            for y in stride(from: 0, to: rep.pixelsHigh, by: 4) {
+                var first = -1
+                var last = -1
+                var filled = 0
+                for x in 0..<rep.pixelsWide {
+                    guard let color = rep.colorAt(x: x, y: y), color.alphaComponent > 0.02 else { continue }
+                    if first < 0 { first = x }
+                    last = x
+                    filled += 1
+                }
+                guard first >= 0 else { continue }
+                let span = last - first + 1
+                // A card paints a solid band; text leaves gaps between glyphs.
+                guard filled * 100 / span >= 98 else { continue }
+                cardSpans.append(span)
+            }
+
+            #expect(!cardSpans.isEmpty, "settings rendered no cards (sound: \(soundEnabled))")
+            let narrowest = cardSpans.min() ?? 0
+            #expect(
+                narrowest >= rep.pixelsWide * 9 / 10,
+                "a settings card only spans \(narrowest) of \(rep.pixelsWide) px (sound: \(soundEnabled))"
+            )
         }
     }
 
