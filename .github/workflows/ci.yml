@@ -39,15 +39,15 @@ jobs:
         run: make test
 
   app:
-    name: Assemble the app bundle
+    name: Package the macOS app
     runs-on: macos-15
     timeout-minutes: 20
     needs: test
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build the bundle
-        run: make app
+      - name: Build the disk image
+        run: make dmg
 
       # The app is menu-bar-only and unsandboxed: if either the LSUIElement flag or
       # the bundle identifier goes missing, notifications and the Keychain item break
@@ -59,13 +59,18 @@ jobs:
           test -x "$APP/Contents/MacOS/Focusdoro"
           plutil -lint "$APP/Contents/Info.plist"
           test "$(defaults read "$PWD/$APP/Contents/Info" CFBundleIdentifier)" = "so.bon.focusdoro"
+          test "$(defaults read "$PWD/$APP/Contents/Info" CFBundleIconFile)" = "AppIcon"
           test "$(defaults read "$PWD/$APP/Contents/Info" LSUIElement)" = "1"
+          test -f "$APP/Contents/Resources/AppIcon.icns"
           codesign --verify --strict --verbose=2 "$APP"
 
-      - name: Upload the bundle
+      - name: Verify the disk image
+        run: Tests/verify-dmg.sh build/Focusdoro.dmg
+
+      - name: Upload the disk image
         uses: actions/upload-artifact@v5
         with:
-          name: Focusdoro-app
-          path: build/Focusdoro.app
+          name: Focusdoro-macOS-DMG
+          path: build/Focusdoro.dmg
           retention-days: 14
           if-no-files-found: error

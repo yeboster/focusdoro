@@ -9,7 +9,8 @@ This machine has Command Line Tools only, not full Xcode. That has one hard cons
 - `make test` — the only working way to run tests. Injects `-F`/`-rpath` flags (see `Makefile`) pointing at `/Library/Developer/CommandLineTools/Library/Developer/{Frameworks,usr/lib}` so the linker finds `Testing.framework`. Currently green.
 - `make build` / `make release` — plain `swift build` (debug / `-c release`); no test flags needed since the app target doesn't import Testing.
 - `make app` — runs `Scripts/build-app.sh`: builds the release binary, assembles `build/Focusdoro.app` (an `LSUIElement` bundle, id `so.bon.focusdoro`, min macOS 14) with a generated `Info.plist`, and ad-hoc codesigns it (`codesign --force --deep --sign -`). A bundle identifier and signature are required for both `UNUserNotificationCenter` and the Keychain item to work — a bare `swift run` binary has neither.
-- `make run` — `make app` then `open build/Focusdoro.app`.
+- `make install` — `make app`, then quits the running Focusdoro, replaces `/Applications/Focusdoro.app`, and relaunches it. **Do this at the end of any build meant to be used, not just tested**: `/Applications` holds the copy the login item and the menu bar actually launch, so a build left in `build/` changes nothing the user sees. Nothing user-owned lives inside the bundle (token in the Keychain, history in Core Data, in-flight deadline in `UserDefaults`), so the swap is safe and the running session is restored on relaunch.
+- `make run` — `make app` then `open build/Focusdoro.app`. Throwaway: it runs the build in place and leaves `/Applications` stale.
 - `make clean` — removes `.build` and `build`.
 
 If you invoke `swift test` directly instead of through `make`, you must pass the same `-Xswiftc -F ... -Xlinker -F ... -Xlinker -rpath ...` flags yourself or it won't compile.

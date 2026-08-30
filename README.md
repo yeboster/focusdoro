@@ -41,12 +41,14 @@ macOS 14 or later, Swift 6 toolchain. Xcode is not required.
 
 ```bash
 make app     # assembles build/Focusdoro.app (ad-hoc signed)
+make dmg     # creates build/Focusdoro.dmg (drag Focusdoro to Applications)
 make run     # builds and launches it
-make test    # 202 unit tests
+make test    # 294 unit tests
 ```
 
 CI (`.github/workflows/ci.yml`) runs the same `make test` on `macos-15`, then assembles
-and verifies `build/Focusdoro.app` and uploads it as a build artifact.
+and verifies `build/Focusdoro.dmg`. Download the `Focusdoro-macOS-DMG` artifact, open
+the disk image, and drag Focusdoro onto the Applications shortcut.
 
 Launch the bundle rather than the raw binary: notification support needs a bundle
 identifier.

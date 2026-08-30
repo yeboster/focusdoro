@@ -17,15 +17,37 @@ MIN_MACOS="14.0"
 
 APP="build/${APP_NAME}.app"
 CONTENTS="${APP}/Contents"
+ICON_SOURCE="Resources/AppIcon.png"
+ICONSET="build/AppIcon.iconset"
 
 echo "==> Building release binary"
 swift build -c release --product "${APP_NAME}"
 BINARY="$(swift build -c release --product "${APP_NAME}" --show-bin-path)/${APP_NAME}"
 
 echo "==> Assembling ${APP}"
-rm -rf "${APP}"
+rm -rf "${APP}" "${ICONSET}"
 mkdir -p "${CONTENTS}/MacOS" "${CONTENTS}/Resources"
 cp "${BINARY}" "${CONTENTS}/MacOS/${APP_NAME}"
+
+echo "==> Building app icon"
+mkdir -p "${ICONSET}"
+make_icon() {
+    local size="$1"
+    local filename="$2"
+    sips -z "${size}" "${size}" "${ICON_SOURCE}" --out "${ICONSET}/${filename}" >/dev/null
+}
+make_icon 16 icon_16x16.png
+make_icon 32 icon_16x16@2x.png
+make_icon 32 icon_32x32.png
+make_icon 64 icon_32x32@2x.png
+make_icon 128 icon_128x128.png
+make_icon 256 icon_128x128@2x.png
+make_icon 256 icon_256x256.png
+make_icon 512 icon_256x256@2x.png
+make_icon 512 icon_512x512.png
+make_icon 1024 icon_512x512@2x.png
+iconutil -c icns "${ICONSET}" -o "${CONTENTS}/Resources/AppIcon.icns"
+rm -rf "${ICONSET}"
 
 cat > "${CONTENTS}/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -38,6 +60,8 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
     <string>${APP_NAME}</string>
     <key>CFBundleIdentifier</key>
     <string>${BUNDLE_ID}</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

@@ -12,7 +12,7 @@ else
 TEST_FLAGS :=
 endif
 
-.PHONY: build release test app run clean
+.PHONY: build release test app dmg install run clean
 
 build:
 	swift build
@@ -25,6 +25,21 @@ test:
 
 app:
 	./Scripts/build-app.sh
+
+dmg: app
+	./Scripts/build-dmg.sh
+
+# Replaces the copy in /Applications, which is the one the login item and the menu bar
+# actually launch. Quits the running instance first: the bundle cannot be swapped under
+# a live process. Nothing user-owned lives inside the bundle — the token is in the
+# Keychain, history in Core Data, the in-flight deadline in UserDefaults — so the
+# relaunch restores the session that was running.
+install: app
+	-osascript -e 'quit app "Focusdoro"' >/dev/null 2>&1
+	@sleep 1
+	rm -rf /Applications/Focusdoro.app
+	cp -R build/Focusdoro.app /Applications/Focusdoro.app
+	open /Applications/Focusdoro.app
 
 run: app
 	open ./build/Focusdoro.app
