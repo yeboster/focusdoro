@@ -153,11 +153,14 @@ struct TimerEngineTests {
             collected.append(event)
             break
         }
-        guard case .sessionAbandoned(_, _, let elapsed, let phase) = collected[0] else {
+        guard case .sessionAbandoned(_, _, let elapsed, let planned, let phase) = collected[0] else {
             Issue.record("Expected sessionAbandoned")
             return
         }
         #expect(elapsed == 125)
+        // The session's own planned length travels with the event, so a one-off length
+        // is what gets recorded rather than whatever the default happens to be now.
+        #expect(planned == 600)
         #expect(phase == .focus)
         #expect(await engine.currentState() == .idle)
     }

@@ -45,6 +45,7 @@ public enum Theme {
         public static let progressHeight: CGFloat = 6
         public static let notchWidth: CGFloat = 34
         public static let notchHeight: CGFloat = 5
+        public static let stepButtonSize: CGFloat = 30
     }
 
     public enum Palette {
@@ -176,6 +177,28 @@ public struct SecondaryActionStyle: ButtonStyle {
             }
             .opacity(isEnabled ? 1 : 0.45)
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+    }
+}
+
+/// Circular ± control flanking the ready-screen timer. Sized for the pointer without
+/// competing with the primary action for attention.
+public struct StepButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(SwiftUI.Font.system(size: 17, weight: .medium, design: .rounded))
+            .foregroundStyle(Theme.Palette.textSecondary)
+            .frame(width: Theme.Metric.stepButtonSize, height: Theme.Metric.stepButtonSize)
+            .background(
+                Color.white.opacity(configuration.isPressed ? 0.14 : 0.06),
+                in: Circle()
+            )
+            .overlay { Circle().strokeBorder(Theme.Palette.cardStroke, lineWidth: 1) }
+            .opacity(isEnabled ? 1 : 0.3)
+            .contentShape(Circle())
     }
 }
 

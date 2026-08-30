@@ -22,9 +22,13 @@ struct TaskOrganizerTests {
         ]
     }
 
-    private func sections(_ sort: TaskSortOrder, criteria: TaskFilterCriteria = .none) -> [TaskSection] {
+    private func sections(
+        _ sort: TaskSortOrder,
+        scope: TaskDateScope = .all,
+        criteria: TaskFilterCriteria = .none
+    ) -> [TaskSection] {
         TaskOrganizer.sections(
-            tasks: tasks, projects: projects, criteria: criteria,
+            tasks: tasks, projects: projects, scope: scope, criteria: criteria,
             sort: sort, now: now, calendar: calendar
         )
     }
@@ -80,6 +84,28 @@ struct TaskOrganizerTests {
     }
 
     // MARK: - Filtering
+
+    @Test("Today scope keeps overdue and today tasks before sorting")
+    func todayScope() {
+        let scoped = sections(.priority, scope: .today)
+        #expect(scoped.flatMap { $0.tasks.map(\.id) } == ["b", "a"])
+    }
+
+    @Test("Upcoming scope excludes overdue, today, and undated tasks")
+    func upcomingScope() {
+        let scoped = sections(.priority, scope: .upcoming)
+        #expect(scoped.flatMap { $0.tasks.map(\.id) } == ["d"])
+    }
+
+    @Test("Priority filter applies inside the selected date scope")
+    func scopeAndPriorityCompose() {
+        let scoped = sections(
+            .priority,
+            scope: .today,
+            criteria: TaskFilterCriteria(minimumPriority: .p2)
+        )
+        #expect(scoped.flatMap { $0.tasks.map(\.id) } == ["b"])
+    }
 
     @Test("Filtering by project keeps only that project's tasks")
     func projectFilter() {
@@ -146,12 +172,15 @@ struct TaskOrganizerTests {
     func preferencesRoundTrip() throws {
         var preferences = AppPreferences.default
         #expect(preferences.taskSortOrder == .dueDate)
+        #expect(preferences.taskDateScope == .today)
         preferences.taskSortOrder = .project
+        preferences.taskDateScope = .upcoming
         preferences.taskFilter = TaskFilterCriteria(projectID: "work", minimumPriority: .p2)
 
         let data = try JSONEncoder().encode(preferences)
         let decoded = try JSONDecoder().decode(AppPreferences.self, from: data)
         #expect(decoded.taskSortOrder == .project)
+        #expect(decoded.taskDateScope == .upcoming)
         #expect(decoded.taskFilter.projectID == "work")
         #expect(decoded.taskFilter.minimumPriority == .p2)
     }
@@ -165,6 +194,7 @@ struct TaskOrganizerTests {
         """
         let decoded = try JSONDecoder().decode(AppPreferences.self, from: Data(legacy.utf8))
         #expect(decoded.taskSortOrder == .dueDate)
+        #expect(decoded.taskDateScope == .today)
         #expect(decoded.taskFilter == .none)
     }
 }

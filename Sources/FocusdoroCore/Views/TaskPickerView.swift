@@ -18,6 +18,7 @@ public struct TaskPickerView: View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             header
             searchField
+            scopePicker
             controls
             content
         }
@@ -47,7 +48,7 @@ public struct TaskPickerView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Theme.Palette.textTertiary)
-            TextField("Search all active tasks", text: $sync.searchQuery)
+            TextField(searchPlaceholder, text: $sync.searchQuery)
                 .textFieldStyle(.plain)
                 .font(Theme.Font.body)
                 .foregroundStyle(Theme.Palette.textPrimary)
@@ -85,6 +86,47 @@ public struct TaskPickerView: View {
         .padding(.horizontal, Theme.Space.s + 2)
         .frame(height: 32)
         .cardSurface(radius: Theme.Radius.chip)
+    }
+
+    private var searchPlaceholder: String {
+        switch model.taskDateScope {
+        case .today: return "Search today and overdue"
+        case .upcoming: return "Search upcoming tasks"
+        case .all: return "Search all active tasks"
+        }
+    }
+
+    // Date scope is the primary decision; sort and detailed filters below operate
+    // only inside it. A full-width control keeps that hierarchy visible.
+    private var scopePicker: some View {
+        HStack(spacing: Theme.Space.xs) {
+            ForEach(TaskDateScope.allCases) { scope in
+                let selected = model.taskDateScope == scope
+                Button {
+                    model.taskDateScope = scope
+                    model.clearHighlight()
+                } label: {
+                    Text(scope.title)
+                        .font(Theme.Font.meta.weight(.semibold))
+                        .foregroundStyle(selected ? Theme.Palette.textPrimary : Theme.Palette.textSecondary)
+                        .frame(maxWidth: .infinity, minHeight: 26)
+                        .background(
+                            selected ? Theme.Palette.accent.opacity(0.22) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: Theme.Radius.chip - 2, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: Theme.Radius.chip - 2, style: .continuous)
+                                .strokeBorder(selected ? Theme.Palette.accent.opacity(0.48) : Color.clear, lineWidth: 1)
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Show \(scope.title.lowercased()) tasks")
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
     }
 
     // MARK: - Sort and filter
@@ -138,7 +180,9 @@ public struct TaskPickerView: View {
             }
             .pickerStyle(.inline)
 
-            Toggle("Only tasks with a date", isOn: datedBinding)
+            if model.taskDateScope == .all {
+                Toggle("Only tasks with a date", isOn: datedBinding)
+            }
         } label: {
             menuLabel(
                 icon: "line.3.horizontal.decrease",

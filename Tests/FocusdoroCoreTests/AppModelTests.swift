@@ -150,6 +150,7 @@ struct AppModelTests {
         // Inbox leads, as it does in Todoist itself.
         #expect(harness.model.sync.projectsWithTasks.map(\.id) == ["inbox", "work"])
 
+        harness.model.taskDateScope = .all
         harness.model.taskSortOrder = .project
         #expect(harness.model.sync.sections.map(\.title) == ["Inbox", "Work"])
     }
@@ -167,12 +168,14 @@ struct AppModelTests {
         #expect(harness.model.sync.loadState == .loaded)
     }
 
-    @Test("Sort and filter choices are written to preferences")
+    @Test("Scope, sort, and filter choices are written to preferences")
     func sortAndFilterPersist() async throws {
         let harness = try Harness()
+        harness.model.taskDateScope = .upcoming
         harness.model.taskSortOrder = .priority
         harness.model.taskFilter = TaskFilterCriteria(projectID: "work", minimumPriority: .p2)
 
+        #expect(harness.preferences.preferences.taskDateScope == .upcoming)
         #expect(harness.preferences.preferences.taskSortOrder == .priority)
         #expect(harness.preferences.preferences.taskFilter.projectID == "work")
         #expect(harness.model.sync.filter.minimumPriority == .p2)
@@ -187,6 +190,7 @@ struct AppModelTests {
             notifications: harness.notifications,
             clock: harness.clock
         )
+        #expect(restored.taskDateScope == .upcoming)
         #expect(restored.taskSortOrder == .priority)
         #expect(restored.taskFilter.projectID == "work")
     }

@@ -19,6 +19,23 @@ public enum TaskSortOrder: String, Codable, Sendable, CaseIterable, Identifiable
     }
 }
 
+/// First-level date view. Sorting and detailed filters operate inside this scope.
+public enum TaskDateScope: String, Codable, Sendable, CaseIterable, Identifiable {
+    case today
+    case upcoming
+    case all
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .today: return "Today"
+        case .upcoming: return "Upcoming"
+        case .all: return "All"
+        }
+    }
+}
+
 /// What the picker hides. `nil` project means every project.
 public struct TaskFilterCriteria: Codable, Equatable, Sendable {
     public var projectID: String?
@@ -64,12 +81,14 @@ public enum TaskOrganizer {
     public static func sections(
         tasks: [TodoistTask],
         projects: [TodoistProject],
+        scope: TaskDateScope = .all,
         criteria: TaskFilterCriteria,
         sort: TaskSortOrder,
         now: Date,
         calendar: Calendar
     ) -> [TaskSection] {
-        let filtered = apply(criteria, to: tasks, calendar: calendar)
+        let scoped = apply(scope, to: tasks, now: now, calendar: calendar)
+        let filtered = apply(criteria, to: scoped, calendar: calendar)
 
         switch sort {
         case .project:
@@ -81,6 +100,21 @@ public enum TaskOrganizer {
             return sorted.isEmpty ? [] : [TaskSection(id: "all", title: "All tasks", tasks: sorted)]
         case .dueDate:
             return dueSections(filtered, now: now, calendar: calendar)
+        }
+    }
+
+    public static func apply(
+        _ scope: TaskDateScope,
+        to tasks: [TodoistTask],
+        now: Date,
+        calendar: Calendar
+    ) -> [TodoistTask] {
+        guard scope != .all else { return tasks }
+        let groups = TaskFilter.group(tasks: tasks, now: now, calendar: calendar)
+        switch scope {
+        case .today: return groups.overdue + groups.today
+        case .upcoming: return groups.upcoming
+        case .all: return tasks
         }
     }
 

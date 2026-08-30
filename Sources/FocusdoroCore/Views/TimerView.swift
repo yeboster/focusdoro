@@ -12,6 +12,9 @@ public struct TimerView: View {
     private var snapshot: TimerSnapshot { model.snapshot }
     private var isFocusing: Bool { snapshot.state.isFocusing }
     private var isRunning: Bool { snapshot.state.activePhase != nil }
+    /// The ± controls belong to the ready screen only: mid-session there is nothing to
+    /// adjust, and a break runs on its own configured length.
+    private var canAdjustLength: Bool { snapshot.state == .idle }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
@@ -61,18 +64,45 @@ public struct TimerView: View {
                 }
             }
 
-            Text(displayTime)
-                .font(Theme.Font.timer)
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .accessibilityLabel("\(phaseLabel) remaining")
-                .accessibilityValue(spokenTime)
+            HStack(spacing: Theme.Space.s) {
+                // Only before the session starts: the deadline is written at start and
+                // is never extended afterwards (spec §4).
+                if canAdjustLength {
+                    Button("−") { model.adjustPlannedFocus(byMinutes: -AppModel.focusLengthStepMinutes) }
+                        .buttonStyle(StepButtonStyle())
+                        .disabled(!model.canShortenFocus)
+                        .accessibilityLabel("Shorten this session by \(AppModel.focusLengthStepMinutes) minutes")
+                }
+                Text(displayTime)
+                    .font(Theme.Font.timer)
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .accessibilityLabel("\(phaseLabel) remaining")
+                    .accessibilityValue(spokenTime)
+                if canAdjustLength {
+                    Button("+") { model.adjustPlannedFocus(byMinutes: AppModel.focusLengthStepMinutes) }
+                        .buttonStyle(StepButtonStyle())
+                        .disabled(!model.canLengthenFocus)
+                        .accessibilityLabel("Lengthen this session by \(AppModel.focusLengthStepMinutes) minutes")
+                }
+            }
 
             ProgressBar(progress: snapshot.progress)
 
-            Text(progressHint)
-                .font(Theme.Font.meta)
-                .foregroundStyle(Theme.Palette.textTertiary)
+            HStack(spacing: Theme.Space.s) {
+                Text(progressHint)
+                    .font(Theme.Font.meta)
+                    .foregroundStyle(model.hasCustomFocusLength && !isRunning
+                        ? Theme.Palette.textSecondary : Theme.Palette.textTertiary)
+                if canAdjustLength, model.hasCustomFocusLength {
+                    Spacer(minLength: 0)
+                    Button("Reset to \(model.preferences.focusDurationSeconds / 60) min") {
+                        model.resetPlannedFocus()
+                    }
+                    .buttonStyle(QuietButtonStyle())
+                    .font(Theme.Font.meta)
+                }
+            }
         }
         .padding(Theme.Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -99,11 +129,11 @@ public struct TimerView: View {
     }
 
     private var displayTime: String {
-        isRunning ? snapshot.formattedRemaining : TimerSnapshot.format(seconds: model.preferences.focusDurationSeconds)
+        isRunning ? snapshot.formattedRemaining : TimerSnapshot.format(seconds: model.plannedFocusSeconds)
     }
 
     private var spokenTime: String {
-        let seconds = isRunning ? snapshot.remainingSeconds : model.preferences.focusDurationSeconds
+        let seconds = isRunning ? snapshot.remainingSeconds : model.plannedFocusSeconds
         let minutes = seconds / 60
         let rest = seconds % 60
         return "\(minutes) minutes \(rest) seconds"
@@ -111,7 +141,8 @@ public struct TimerView: View {
 
     private var progressHint: String {
         guard isRunning else {
-            return "\(model.preferences.focusDurationSeconds / 60) minute session · no pause once started"
+            let tail = model.hasCustomFocusLength ? "just this session" : "no pause once started"
+            return "\(model.plannedFocusMinutes) minute session · \(tail)"
         }
         return "\(snapshot.formattedElapsed) elapsed of \(TimerSnapshot.format(seconds: snapshot.plannedSeconds))"
     }

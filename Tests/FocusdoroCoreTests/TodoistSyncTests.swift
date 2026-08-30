@@ -233,6 +233,7 @@ struct TodoistSyncTests {
         let todoist = FakeTodoist(tasks: [
             Fixture.task("1", "Ship it", due: "2026-08-29", priority: 4, projectID: "p-work"),
             Fixture.task("2", "Water the plants", priority: 1, projectID: "p-home"),
+            Fixture.task("3", "Ship later", due: "2026-09-04", priority: 3, projectID: "p-work"),
         ])
         await todoist.setProjects([
             TodoistProject(id: "p-work", name: "Work"),
@@ -249,6 +250,14 @@ struct TodoistSyncTests {
         #expect(sync.sections == firstRead, "a repeated read with no change must be stable")
         #expect(sync.projectName(id: "p-work") == "Work")
         #expect(sync.projectsWithTasks.count == 2)
+
+        // First-level date scope narrows sections and search before other controls.
+        sync.dateScope = .today
+        #expect(sync.sections.flatMap(\.tasks).map(\.id) == ["1"])
+        sync.searchQuery = "ship"
+        #expect(sync.searchResults.map(\.id) == ["1"])
+        sync.searchQuery = ""
+        sync.dateScope = .all
 
         // Sort order.
         sync.sortOrder = .priority
@@ -271,8 +280,8 @@ struct TodoistSyncTests {
         sync.searchQuery = ""
         sync.sortOrder = .dueDate
         sync.removeLocally(taskID: "1")
-        #expect(sync.sections.flatMap(\.tasks).map(\.id) == ["2"])
-        #expect(sync.projectsWithTasks.map(\.id) == ["p-home"])
+        #expect(sync.sections.flatMap(\.tasks).map(\.id) == ["3", "2"])
+        #expect(sync.projectsWithTasks.map(\.id) == ["p-home", "p-work"])
     }
 
     @Test("Crossing midnight re-sections the same tasks")

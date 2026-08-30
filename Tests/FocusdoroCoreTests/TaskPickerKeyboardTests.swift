@@ -52,7 +52,7 @@ private struct PickerHarness {
     let sync: TodoistSync
     let model: AppModel
 
-    init(tasks: [TodoistTask]) async throws {
+    init(tasks: [TodoistTask], scope: TaskDateScope = .all) async throws {
         try tokens.saveToken("test-token")
         await todoist.setTasks(tasks)
         await todoist.setProjects([TodoistProject(id: "p1", name: "Focusdoro", isInboxProject: false)])
@@ -68,6 +68,7 @@ private struct PickerHarness {
             clock: clock,
             calendar: Fixture.calendar()
         )
+        model.taskDateScope = scope
         await sync.refresh()
     }
 }

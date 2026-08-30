@@ -86,6 +86,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var breakAutoStartDelaySeconds: Int
     /// Optional on the wire so preferences written by an earlier build still decode:
     /// the synthesized decoder uses `decodeIfPresent` for optionals.
+    public var taskDateScopeID: String?
     public var taskSortOrderID: String?
     public var taskFilterCriteria: TaskFilterCriteria?
     /// Whether a stopped focus session still posts its measured time to Todoist.
@@ -104,6 +105,11 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     public var presence: FocusPresenceSettings {
         get { focusPresenceSettings ?? .default }
         set { focusPresenceSettings = newValue }
+    }
+
+    public var taskDateScope: TaskDateScope {
+        get { taskDateScopeID.flatMap(TaskDateScope.init(rawValue:)) ?? .today }
+        set { taskDateScopeID = newValue.rawValue }
     }
 
     public var taskSortOrder: TaskSortOrder {
@@ -144,6 +150,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         bindings: [HotKeyAction: HotKeyBinding],
         lastSelectedTaskID: String?,
         breakAutoStartDelaySeconds: Int,
+        taskDateScopeID: String? = nil,
         taskSortOrderID: String? = nil,
         taskFilterCriteria: TaskFilterCriteria? = nil,
         logsAbandonedTimeFlag: Bool? = nil,
@@ -159,6 +166,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.bindings = bindings
         self.lastSelectedTaskID = lastSelectedTaskID
         self.breakAutoStartDelaySeconds = breakAutoStartDelaySeconds
+        self.taskDateScopeID = taskDateScopeID
         self.taskSortOrderID = taskSortOrderID
         self.taskFilterCriteria = taskFilterCriteria
         self.logsAbandonedTimeFlag = logsAbandonedTimeFlag

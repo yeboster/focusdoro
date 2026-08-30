@@ -32,6 +32,7 @@ public final class TodoistSync {
     public var searchQuery: String = ""
     /// Set by the picker's controls; persisted by `AppModel` so the choice survives a
     /// relaunch.
+    public var dateScope: TaskDateScope = .all
     public var sortOrder: TaskSortOrder = .dueDate
     public var filter: TaskFilterCriteria = .none
 
@@ -53,6 +54,7 @@ public final class TodoistSync {
 
     private struct ProjectionKey: Equatable {
         var revision: Int
+        var scope: TaskDateScope
         var sort: TaskSortOrder
         var filter: TaskFilterCriteria
         var query: String
@@ -67,6 +69,7 @@ public final class TodoistSync {
         _ = projects
         return ProjectionKey(
             revision: revision,
+            scope: dateScope,
             sort: sortOrder,
             filter: filter,
             query: searchQuery,
@@ -94,7 +97,9 @@ public final class TodoistSync {
     public var searchResults: [TodoistTask] {
         let key = projectionKey()
         if let searchCache, searchCache.key == key { return searchCache.value }
-        let value = TaskOrganizer.apply(filter, to: TaskFilter.search(searchQuery, in: allTasks), calendar: calendar)
+        let matches = TaskFilter.search(searchQuery, in: allTasks)
+        let scoped = TaskOrganizer.apply(dateScope, to: matches, now: clock.now, calendar: calendar)
+        let value = TaskOrganizer.apply(filter, to: scoped, calendar: calendar)
         searchCache = (key, value)
         return value
     }
@@ -106,6 +111,7 @@ public final class TodoistSync {
         let value = TaskOrganizer.sections(
             tasks: allTasks,
             projects: projects,
+            scope: dateScope,
             criteria: filter,
             sort: sortOrder,
             now: clock.now,

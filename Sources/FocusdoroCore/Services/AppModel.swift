@@ -54,6 +54,14 @@ public final class AppModel {
     }
     /// Picker controls write through to both the live sync and the persisted
     /// preferences; reads come from `sync`, which is observable.
+    public var taskDateScope: TaskDateScope {
+        get { sync.dateScope }
+        set {
+            sync.dateScope = newValue
+            preferences.taskDateScope = newValue
+        }
+    }
+
     public var taskSortOrder: TaskSortOrder {
         get { sync.sortOrder }
         set {
@@ -84,6 +92,10 @@ public final class AppModel {
     /// Read from `SMAppService`, never from preferences: the user can revoke the login
     /// item in System Settings and this has to reflect that.
     public private(set) var loginItemStatus: LoginItemStatus = .unavailable
+    /// One-off focus length picked on the ready screen, in seconds. Deliberately not
+    /// written to preferences: a sprint sized for one task must not silently become the
+    /// new default for every task after it.
+    public private(set) var customFocusSeconds: Int?
 
     // Collaborators
     public let sync: TodoistSync
@@ -133,7 +145,8 @@ public final class AppModel {
         self.loginItem = loginItem
         self.preferences = preferencesStore.preferences
         self.route = sync.hasToken ? .tasks : .connect
-        // The picker's ordering and filter are user choices, so they outlive a relaunch.
+        // The picker's scope, ordering, and filter are user choices, so they outlive a relaunch.
+        sync.dateScope = self.preferences.taskDateScope
         sync.sortOrder = self.preferences.taskSortOrder
         sync.filter = self.preferences.taskFilter
     }
@@ -270,13 +283,16 @@ public final class AppModel {
             notifications.playCompletionSound()
             notifications.notifyBreakComplete(nextPhase: .focus)
             await refreshSnapshot()
-        case .sessionAbandoned(let sessionID, let task, let elapsed, let phase):
+        case .sessionAbandoned(let sessionID, let task, let elapsed, let planned, let phase):
             await releasePresence()
+            resetPlannedFocus()
             guard phase == .focus else { break }
             let logs = preferences.logsAbandonedTime
+            // The session's own planned length, not today's default: a one-off sprint
+            // must not be recorded against the 25 minutes it never planned to run.
             let outcome = await orchestrator.finishFocus(
                 sessionID: sessionID, task: task, elapsedSeconds: elapsed,
-                plannedSeconds: preferences.focusDurationSeconds, reason: .abandoned,
+                plannedSeconds: planned, reason: .abandoned,
                 logsPartialTime: logs
             )
             banner = BannerMessage(
@@ -291,6 +307,7 @@ public final class AppModel {
 
     private func handleFocusFinished(sessionID: UUID, task: SelectedTask, elapsed: Int, planned: Int) async {
         await releasePresence()
+        resetPlannedFocus()
         notifications.playCompletionSound()
         let nextBreak = preferences.breakPhase(afterCompletedFocusCount: await engine.completedFocusSessions())
         notifications.notifyFocusComplete(taskTitle: task.title, nextBreak: nextBreak)
@@ -314,6 +331,7 @@ public final class AppModel {
 
     private func handleTaskCompletion(sessionID: UUID, task: SelectedTask, elapsed: Int, planned: Int) async {
         await releasePresence()
+        resetPlannedFocus()
         isBusy = true
         defer { isBusy = false }
         let outcome = await orchestrator.finishFocus(
@@ -437,10 +455,56 @@ public final class AppModel {
     public func select(task: TodoistTask) async {
         // The project name is resolved here, while the sync cache still has it: history
         // has to keep reading after the task is closed or the app is offline.
+        // A length sized for the previous task means nothing for this one.
+        if snapshot.task?.id != task.id { resetPlannedFocus() }
         await engine.selectTask(task.selection(projectName: sync.projectName(id: task.projectID)))
         highlightedTaskID = task.id
         await refreshSnapshot()
         route = .timer
+    }
+
+    // MARK: - Session length
+
+    /// Shortest and longest a single focus may be set to from the ready screen. The low
+    /// bound matches what Settings already allows, so a one-minute smoke test still works.
+    public static let focusLengthBounds = 1...180
+    /// One tap of the stepper.
+    public static let focusLengthStepMinutes = 5
+
+    /// Length the next focus will run for: the one-off override when the user set one,
+    /// otherwise the configured default.
+    public var plannedFocusSeconds: Int {
+        customFocusSeconds ?? preferences.focusDurationSeconds
+    }
+
+    public var plannedFocusMinutes: Int {
+        max(Self.focusLengthBounds.lowerBound, plannedFocusSeconds / 60)
+    }
+
+    public var hasCustomFocusLength: Bool { customFocusSeconds != nil }
+
+    public var canLengthenFocus: Bool { plannedFocusMinutes < Self.focusLengthBounds.upperBound }
+    public var canShortenFocus: Bool { plannedFocusMinutes > Self.focusLengthBounds.lowerBound }
+
+    /// Steps the next session's length. Ignored once a session is running: the deadline
+    /// is written at start and is never extended (spec §4).
+    public func adjustPlannedFocus(byMinutes delta: Int) {
+        guard snapshot.state.activePhase == nil else { return }
+        let target = plannedFocusMinutes + delta
+        let clamped = min(max(target, Self.focusLengthBounds.lowerBound), Self.focusLengthBounds.upperBound)
+        setPlannedFocus(minutes: clamped)
+    }
+
+    public func setPlannedFocus(minutes: Int) {
+        guard snapshot.state.activePhase == nil else { return }
+        let clamped = min(max(minutes, Self.focusLengthBounds.lowerBound), Self.focusLengthBounds.upperBound)
+        // Landing back on the default drops the override, so the ready screen stops
+        // claiming a custom length the user has effectively undone.
+        customFocusSeconds = clamped * 60 == preferences.focusDurationSeconds ? nil : clamped * 60
+    }
+
+    public func resetPlannedFocus() {
+        customFocusSeconds = nil
     }
 
     public func startFocus() async {
@@ -449,7 +513,7 @@ public final class AppModel {
             route = .tasks
             return
         }
-        await engine.startFocus(task: task, duration: preferences.focusDurationSeconds)
+        await engine.startFocus(task: task, duration: plannedFocusSeconds)
         await refreshSnapshot()
         route = .timer
         onRequestPopoverClose?()

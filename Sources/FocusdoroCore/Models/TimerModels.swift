@@ -328,6 +328,6 @@ public struct TimerSnapshot: Equatable, Sendable {
 public enum TimerEvent: Equatable, Sendable {
     case focusFinished(sessionID: UUID, task: SelectedTask, elapsedSeconds: Int, plannedSeconds: Int)
     case breakFinished(sessionID: UUID, phase: TimerPhase)
-    case sessionAbandoned(sessionID: UUID, task: SelectedTask, elapsedSeconds: Int, phase: TimerPhase)
+    case sessionAbandoned(sessionID: UUID, task: SelectedTask, elapsedSeconds: Int, plannedSeconds: Int, phase: TimerPhase)
     case taskCompletionRequested(sessionID: UUID, task: SelectedTask, elapsedSeconds: Int, plannedSeconds: Int)
 }

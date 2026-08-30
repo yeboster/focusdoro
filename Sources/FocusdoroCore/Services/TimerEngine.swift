@@ -284,6 +284,7 @@ public actor TimerEngine {
                 sessionID: current.sessionID,
                 task: current.task,
                 elapsedSeconds: min(current.plannedSeconds, elapsed),
+                plannedSeconds: current.plannedSeconds,
                 phase: current.phase
             ),
             for: current.sessionID
