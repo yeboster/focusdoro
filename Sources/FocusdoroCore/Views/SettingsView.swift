@@ -17,6 +17,7 @@ public struct SettingsView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.l) {
+                general
                 durations
                 alerts
                 focusMode
@@ -27,6 +28,37 @@ public struct SettingsView: View {
         }
         .frame(minHeight: min(Theme.Metric.listMinHeight, listCap), maxHeight: listCap)
         .scrollIndicators(.never)
+        // The user can revoke the login item in System Settings, so it is re-read every
+        // time this screen appears rather than cached at launch.
+        .onAppear { model.refreshLoginItemStatus() }
+    }
+
+    // MARK: - General
+
+    private var general: some View {
+        section("General", footnote: generalFootnote) {
+            row("Open at login") {
+                Toggle("", isOn: Binding(
+                    get: { model.loginItemStatus.isOn },
+                    set: { model.setLaunchAtLogin($0) }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(Theme.Palette.accent)
+                .disabled(model.loginItemStatus == .unavailable)
+            }
+        }
+    }
+
+    private var generalFootnote: String? {
+        switch model.loginItemStatus {
+        case .requiresApproval:
+            return "Waiting for approval in System Settings › General › Login Items."
+        case .unavailable:
+            return "Available in the built Focusdoro.app; a raw `swift run` binary has no bundle to register."
+        case .enabled, .disabled:
+            return nil
+        }
     }
 
     private var listCap: CGFloat { Theme.Metric.listCap(forPopoverHeight: popoverMaxHeight) }

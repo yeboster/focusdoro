@@ -39,6 +39,7 @@ public final class AppModel {
     // Presentation state
     public private(set) var snapshot = TimerSnapshot(state: .idle)
     public private(set) var todaySummary = TodaySummary()
+    public private(set) var weeklySummary = WeeklySummary()
     public private(set) var recentSessions: [SessionRecord] = []
     public private(set) var isBusy = false
     public var route: PopoverRoute = .tasks
@@ -77,6 +78,12 @@ public final class AppModel {
     public private(set) var slackIsConnected = false
     /// Shortcut names offered in the two Focus pickers, read from the Shortcuts CLI.
     public private(set) var availableShortcuts: [String] = []
+    /// Task the keyboard is pointing at in the picker. Nil until the user arrows or
+    /// types; a mouse-only session never sees a highlight.
+    public private(set) var highlightedTaskID: String?
+    /// Read from `SMAppService`, never from preferences: the user can revoke the login
+    /// item in System Settings and this has to reflect that.
+    public private(set) var loginItemStatus: LoginItemStatus = .unavailable
 
     // Collaborators
     public let sync: TodoistSync
@@ -90,6 +97,7 @@ public final class AppModel {
     /// Optional: a build with neither macOS Focus nor Slack configured has none.
     private let presenceServices: PresenceServices?
     private var presence: PresenceCoordinator? { presenceServices?.coordinator }
+    private let loginItem: LoginItemManaging?
 
     /// Set by the AppKit layer; the core stays free of window ownership.
     public var presentCompletionOverlay: ((FocusCompletionSummary) -> Void)?
@@ -110,7 +118,8 @@ public final class AppModel {
         notifications: NotificationPresenting,
         clock: DateProviding = SystemDateProvider(),
         calendar: Calendar = .current,
-        presence: PresenceServices? = nil
+        presence: PresenceServices? = nil,
+        loginItem: LoginItemManaging? = nil
     ) {
         self.sync = sync
         self.engine = engine
@@ -121,6 +130,7 @@ public final class AppModel {
         self.clock = clock
         self.calendar = calendar
         self.presenceServices = presence
+        self.loginItem = loginItem
         self.preferences = preferencesStore.preferences
         self.route = sync.hasToken ? .tasks : .connect
         // The picker's ordering and filter are user choices, so they outlive a relaunch.
@@ -133,6 +143,7 @@ public final class AppModel {
     public func start() async {
         observeEvents()
         slackIsConnected = ((try? presenceServices?.slackTokens.readToken()) ?? nil)?.isEmpty == false
+        refreshLoginItemStatus()
         // Restore before anything else so a deadline already passed completes now.
         await engine.restore()
         await engine.setCompletedFocusCount(todayCompletedFocusCount())
@@ -424,7 +435,10 @@ public final class AppModel {
     }
 
     public func select(task: TodoistTask) async {
-        await engine.selectTask(task.selection)
+        // The project name is resolved here, while the sync cache still has it: history
+        // has to keep reading after the task is closed or the app is offline.
+        await engine.selectTask(task.selection(projectName: sync.projectName(id: task.projectID)))
+        highlightedTaskID = task.id
         await refreshSnapshot()
         route = .timer
     }
@@ -523,10 +537,71 @@ public final class AppModel {
 
     public func dismissBanner() { banner = nil }
 
+    // MARK: - Keyboard navigation
+
+    /// Flattened picker order — exactly what the list renders, so arrow keys and the
+    /// eye agree about what "next" means.
+    public var visibleTaskIDs: [String] {
+        if sync.isSearching { return sync.searchResults.map(\.id) }
+        return sync.sections.flatMap { $0.tasks.map(\.id) }
+    }
+
+    public func moveHighlight(_ move: HighlightMove) {
+        let ids = visibleTaskIDs
+        // A highlight the list no longer contains is dropped rather than resolved, so
+        // the first arrow press after a search lands on the first result, not the second.
+        let current = highlightedTaskID.flatMap { ids.contains($0) ? $0 : nil }
+        highlightedTaskID = TaskHighlight.next(move, in: ids, from: current)
+    }
+
+    /// Return in the picker: pick the highlighted task and start focusing on it. Falls
+    /// back to the first row so Return works straight after typing a search.
+    public func activateHighlighted(start: Bool = true) async {
+        let ids = visibleTaskIDs
+        guard let id = TaskHighlight.resolve(current: highlightedTaskID, in: ids), let task = sync.task(id: id) else { return }
+        highlightedTaskID = id
+        await select(task: task)
+        if start { await startFocus() }
+    }
+
+    public func clearHighlight() {
+        highlightedTaskID = nil
+    }
+
+    // MARK: - Launch at login
+
+    public func refreshLoginItemStatus() {
+        loginItemStatus = loginItem?.status() ?? .unavailable
+    }
+
+    /// Registers or unregisters the login item. macOS may leave it "requires approval",
+    /// which is not a failure — it means the switch is now waiting in System Settings.
+    public func setLaunchAtLogin(_ enabled: Bool) {
+        guard let loginItem else {
+            banner = BannerMessage(kind: .warning, text: LoginItemError.unavailable.userMessage)
+            return
+        }
+        do {
+            try loginItem.setEnabled(enabled)
+            refreshLoginItemStatus()
+            if enabled, loginItemStatus == .requiresApproval {
+                banner = BannerMessage(
+                    kind: .info,
+                    text: "Allow Focusdoro in System Settings › General › Login Items to finish turning this on."
+                )
+            }
+        } catch {
+            refreshLoginItemStatus()
+            let message = (error as? LoginItemError)?.userMessage ?? "The login item could not be changed."
+            banner = BannerMessage(kind: .warning, text: message)
+        }
+    }
+
     // MARK: - History
 
     public func reloadHistory() {
         todaySummary = (try? store.todaySummary(now: clock.now, calendar: calendar)) ?? TodaySummary()
+        weeklySummary = (try? store.weeklySummary(now: clock.now, calendar: calendar)) ?? WeeklySummary()
         recentSessions = (try? store.recentSessions(limit: 8)) ?? []
     }
 
@@ -562,6 +637,7 @@ extension AppModel {
         route: PopoverRoute = .timer,
         sync: TodoistSync? = nil,
         todaySummary: TodaySummary = PreviewFixtures.todaySummary,
+        weeklySummary: WeeklySummary = PreviewFixtures.weeklySummary,
         recentSessions: [SessionRecord] = PreviewFixtures.recentSessions,
         banner: BannerMessage? = nil,
         confirmation: PendingConfirmation? = nil
@@ -581,6 +657,7 @@ extension AppModel {
         )
         model.snapshot = snapshot
         model.todaySummary = todaySummary
+        model.weeklySummary = weeklySummary
         model.recentSessions = recentSessions
         model.route = route
         model.banner = banner

@@ -207,11 +207,15 @@ struct SessionStoreTests {
             "id", "taskID", "taskTitleSnapshot", "startedAt", "endedAt",
             "plannedDurationSeconds", "elapsedDurationSeconds", "kind", "status",
             "todoistCommentStatus", "todoistCommentID", "createdAt",
+            // Model version 2: the project snapshot behind the weekly breakdown.
+            "projectID", "projectNameSnapshot",
         ])
+        #expect(entity.attributesByName["projectID"]?.isOptional == true)
+        #expect(entity.attributesByName["projectNameSnapshot"]?.isOptional == true)
         #expect(entity.attributesByName["endedAt"]?.isOptional == true)
         #expect(entity.attributesByName["todoistCommentID"]?.isOptional == true)
         #expect(entity.attributesByName["id"]?.isOptional == false)
-        #expect(model.versionIdentifiers.contains("1"))
+        #expect(model.versionIdentifiers.contains(String(SessionStore.modelVersion)))
     }
 }
 
@@ -244,5 +248,6 @@ struct NullSessionStoreTests {
         #expect(try store.recentSessions(limit: 10).isEmpty)
         #expect(try store.sessionsNeedingCommentRetry().isEmpty)
         #expect(try store.todaySummary(now: Fixture.date("2026-08-29 18:00:00"), calendar: Fixture.calendar()) == TodaySummary())
+        #expect(try store.weeklySummary(now: Fixture.date("2026-08-29 18:00:00"), calendar: Fixture.calendar()) == WeeklySummary())
     }
 }

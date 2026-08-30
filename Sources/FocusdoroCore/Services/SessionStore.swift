@@ -21,6 +21,7 @@ public protocol SessionStoring: AnyObject {
     func session(id: UUID) throws -> SessionRecord?
     func markCommentStatus(sessionID: UUID, status: CommentStatus, commentID: String?) throws
     func todaySummary(now: Date, calendar: Calendar) throws -> TodaySummary
+    func weeklySummary(now: Date, calendar: Calendar) throws -> WeeklySummary
     func recentSessions(limit: Int) throws -> [SessionRecord]
     func sessionsNeedingCommentRetry() throws -> [SessionRecord]
 }
@@ -28,7 +29,7 @@ public protocol SessionStoring: AnyObject {
 /// Core Data stack with a programmatic `NSManagedObjectModel` so the schema is
 /// versioned in code and testable without an Xcode-compiled `.momd`.
 public final class SessionStore: SessionStoring, @unchecked Sendable {
-    public static let modelVersion = 1
+    public static let modelVersion = 2
     private let container: NSPersistentContainer
     private let context: NSManagedObjectContext
 
@@ -92,6 +93,10 @@ public final class SessionStore: SessionStoring, @unchecked Sendable {
             id,
             attribute("taskID", .stringAttributeType),
             attribute("taskTitleSnapshot", .stringAttributeType),
+            // Added in model version 2. Optional so the inferred lightweight migration
+            // can add the columns to an existing store without a mapping model.
+            attribute("projectID", .stringAttributeType, optional: true),
+            attribute("projectNameSnapshot", .stringAttributeType, optional: true),
             attribute("startedAt", .dateAttributeType),
             attribute("endedAt", .dateAttributeType, optional: true),
             attribute("plannedDurationSeconds", .integer32AttributeType),
@@ -241,6 +246,24 @@ public final class SessionStore: SessionStoring, @unchecked Sendable {
         )
     }
 
+
+    /// The current calendar week, honouring the user's first weekday. Invested time —
+    /// completed plus stopped — so the week total matches what "Today" reports.
+    public func weeklySummary(now: Date, calendar: Calendar) throws -> WeeklySummary {
+        guard let week = calendar.dateInterval(of: .weekOfYear, for: now) else {
+            return WeeklySummary()
+        }
+        let sessions = try fetchRecords(limit: 0) { request in
+            request.predicate = NSPredicate(
+                format: "kind == %@ AND status IN %@ AND endedAt >= %@ AND endedAt < %@",
+                TimerPhase.focus.rawValue,
+                [SessionStatus.completed.rawValue, SessionStatus.abandoned.rawValue],
+                week.start as NSDate, week.end as NSDate
+            )
+        }
+        return WeeklyStats.summarize(sessions: sessions, weekStart: week.start, calendar: calendar)
+    }
+
     // MARK: - Helpers
 
     private func fetchRecords(limit: Int, configure: (NSFetchRequest<NSManagedObject>) -> Void) throws -> [SessionRecord] {
@@ -271,6 +294,8 @@ public final class SessionStore: SessionStoring, @unchecked Sendable {
         object.setValue(record.id, forKey: "id")
         object.setValue(record.taskID, forKey: "taskID")
         object.setValue(record.taskTitleSnapshot, forKey: "taskTitleSnapshot")
+        object.setValue(record.projectID, forKey: "projectID")
+        object.setValue(record.projectNameSnapshot, forKey: "projectNameSnapshot")
         object.setValue(record.startedAt, forKey: "startedAt")
         object.setValue(record.endedAt, forKey: "endedAt")
         object.setValue(record.plannedDurationSeconds, forKey: "plannedDurationSeconds")
@@ -287,6 +312,8 @@ public final class SessionStore: SessionStoring, @unchecked Sendable {
             id: object.value(forKey: "id") as? UUID ?? UUID(),
             taskID: object.value(forKey: "taskID") as? String ?? "",
             taskTitleSnapshot: object.value(forKey: "taskTitleSnapshot") as? String ?? "",
+            projectID: object.value(forKey: "projectID") as? String,
+            projectNameSnapshot: object.value(forKey: "projectNameSnapshot") as? String,
             startedAt: object.value(forKey: "startedAt") as? Date ?? .distantPast,
             endedAt: object.value(forKey: "endedAt") as? Date,
             plannedDurationSeconds: object.value(forKey: "plannedDurationSeconds") as? Int32 ?? 0,

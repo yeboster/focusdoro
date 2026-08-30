@@ -21,6 +21,9 @@ public struct TaskPickerView: View {
             controls
             content
         }
+        // The picker is a keyboard surface first: the field takes focus on open so
+        // arrows and Return work without a click.
+        .onAppear { searchFocused = true }
     }
 
     private var header: some View {
@@ -49,6 +52,26 @@ public struct TaskPickerView: View {
                 .font(Theme.Font.body)
                 .foregroundStyle(Theme.Palette.textPrimary)
                 .focused($searchFocused)
+                // Arrow keys would otherwise move the caret inside the field; the list
+                // is the more useful target while the picker is open.
+                .onKeyPress(.upArrow) { model.moveHighlight(.up); return .handled }
+                .onKeyPress(.downArrow) { model.moveHighlight(.down); return .handled }
+                .onKeyPress(.return) {
+                    Task { await model.activateHighlighted() }
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    // First Escape drops the search, a second one the highlight; neither
+                    // closes the popover, which the menu-bar item already does.
+                    if sync.isSearching {
+                        sync.searchQuery = ""
+                    } else if model.highlightedTaskID != nil {
+                        model.clearHighlight()
+                    } else {
+                        return .ignored
+                    }
+                    return .handled
+                }
             if sync.isSearching {
                 Button {
                     sync.searchQuery = ""
@@ -201,29 +224,38 @@ public struct TaskPickerView: View {
     }
 
     private func taskList(sections: [TaskSection]) -> some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: Theme.Space.s) {
-                ForEach(sections) { section in
-                    SectionLabel(section.title)
-                        .padding(.top, Theme.Space.xs)
-                    ForEach(section.tasks) { task in
-                        PickerTaskRow(
-                            task: task,
-                            projectName: sync.projectName(id: task.projectID),
-                            isProjectFiltered: model.taskFilter.projectID == task.projectID,
-                            select: { Task { await model.select(task: task) } },
-                            filterByProject: {
-                                // Tapping the chip toggles the project filter.
-                                model.taskFilter.projectID = model.taskFilter.projectID == task.projectID ? nil : task.projectID
-                            }
-                        )
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: Theme.Space.s) {
+                    ForEach(sections) { section in
+                        SectionLabel(section.title)
+                            .padding(.top, Theme.Space.xs)
+                        ForEach(section.tasks) { task in
+                            PickerTaskRow(
+                                task: task,
+                                projectName: sync.projectName(id: task.projectID),
+                                isProjectFiltered: model.taskFilter.projectID == task.projectID,
+                                isHighlighted: model.highlightedTaskID == task.id,
+                                select: { Task { await model.select(task: task) } },
+                                filterByProject: {
+                                    // Tapping the chip toggles the project filter.
+                                    model.taskFilter.projectID = model.taskFilter.projectID == task.projectID ? nil : task.projectID
+                                }
+                            )
+                            .id(task.id)
+                        }
                     }
                 }
+                .padding(.bottom, Theme.Space.xs)
             }
-            .padding(.bottom, Theme.Space.xs)
+            .frame(minHeight: min(Theme.Metric.listMinHeight, listCap), maxHeight: listCap)
+            .scrollIndicators(.never)
+            // Arrowing past the visible window has to bring the row along with it.
+            .onChange(of: model.highlightedTaskID) { _, id in
+                guard let id else { return }
+                withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(id, anchor: .center) }
+            }
         }
-        .frame(minHeight: min(Theme.Metric.listMinHeight, listCap), maxHeight: listCap)
-        .scrollIndicators(.never)
     }
 
     private var listCap: CGFloat { Theme.Metric.listCap(forPopoverHeight: popoverMaxHeight) }
@@ -261,6 +293,7 @@ struct PickerTaskRow: View {
     let task: TodoistTask
     let projectName: String?
     let isProjectFiltered: Bool
+    var isHighlighted: Bool = false
     let select: () -> Void
     let filterByProject: () -> Void
 
@@ -323,6 +356,11 @@ struct PickerTaskRow: View {
         .padding(.vertical, Theme.Space.s + 2)
         .frame(maxWidth: .infinity, minHeight: Theme.Metric.rowHeight, alignment: .leading)
         .cardSurface()
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                .strokeBorder(Theme.Palette.accent, lineWidth: isHighlighted ? 1.5 : 0)
+        )
+        .accessibilityAddTraits(isHighlighted ? [.isSelected] : [])
     }
 
     private var metadata: String? {

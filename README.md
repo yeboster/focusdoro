@@ -23,6 +23,13 @@ history.
   history.
 - The task picker groups by due date, priority, or project, filters by project,
   minimum priority, and "has a date", and ranks search so whole-word matches lead.
+- The task picker is keyboard-first: the caret starts in the search field, ↑/↓ move the
+  highlight, ⏎ starts a focus on it, and ⎋ clears the search before the highlight.
+- History shows this week at a glance: seven daily bars, the busiest day accented, and
+  the minutes broken down by project. Every session snapshots its project, so the
+  breakdown survives a task being closed or moved.
+- Focusdoro can start itself at login (`SMAppService`, no helper app); System Settings
+  stays the single source of truth for that switch.
 - Timer truth is a persisted absolute deadline, so it survives relaunch and sleep and is
   never silently extended.
 
@@ -65,6 +72,6 @@ editable in Settings.
 ## Docs
 
 - [Product and design spec](docs/superpowers/specs/2026-08-29-focusdoro-design.md)
-- [As-built specs](docs/specs/) — one file per feature, including [focus mode](docs/specs/focus-mode.md)
+- [As-built specs](docs/specs/) — one file per feature: [focus mode](docs/specs/focus-mode.md), [launch at login](docs/specs/launch-at-login.md), [keyboard picker](docs/specs/keyboard-picker.md), [weekly stats](docs/specs/weekly-stats.md)
 - [Implementation plan](docs/superpowers/plans/2026-08-29-focusdoro-implementation-plan.md)
 - [Testing checklist and verification record](docs/testing-checklist.md)

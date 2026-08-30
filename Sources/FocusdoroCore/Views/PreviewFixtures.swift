@@ -26,6 +26,29 @@ enum PreviewFixtures {
 
     static let todaySummary = TodaySummary(focusedSeconds: 4500, completedFocusSessions: 3, streakDays: 5)
 
+    /// Monday-to-Sunday sample so the week chart has a shape in previews.
+    static var weeklySummary: WeeklySummary {
+        let calendar = Calendar.current
+        let start = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? now
+        let minutes = [50, 75, 0, 120, 45, 0, 25]
+        let days = minutes.enumerated().map { index, value in
+            DayTotal(
+                date: calendar.date(byAdding: .day, value: index, to: calendar.startOfDay(for: start)) ?? start,
+                seconds: value * 60,
+                completedSessions: value / 25
+            )
+        }
+        return WeeklySummary(
+            days: days,
+            projects: [
+                ProjectTotal(projectID: "project-2", name: "Focusdoro", seconds: 190 * 60, completedSessions: 7),
+                ProjectTotal(projectID: "project-3", name: "Admin", seconds: 75 * 60, completedSessions: 3),
+                ProjectTotal(projectID: nil, name: "No project", seconds: 50 * 60, completedSessions: 2),
+            ],
+            startOfWeek: start
+        )
+    }
+
     static var recentSessions: [SessionRecord] {
         [
             SessionRecord(

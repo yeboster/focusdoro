@@ -59,7 +59,12 @@ public struct TodoistTask: Codable, Equatable, Sendable, Identifiable {
         self.labels = labels
     }
 
-    public var selection: SelectedTask { SelectedTask(id: id, title: content) }
+    /// Snapshot the timer and history carry. The project name comes from the caller
+    /// because only the sync cache knows it, and it has to be captured now: history
+    /// still shows it after the task is closed or the app is offline.
+    public func selection(projectName: String? = nil) -> SelectedTask {
+        SelectedTask(id: id, title: content, projectID: projectID, projectName: projectName)
+    }
 }
 
 public struct TodoistComment: Codable, Equatable, Sendable {

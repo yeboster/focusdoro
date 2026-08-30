@@ -105,7 +105,8 @@ public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate {
             preferencesStore: preferencesStore,
             notifications: notificationService,
             clock: clock,
-            presence: presence
+            presence: presence,
+            loginItem: LoginItemService()
         )
         model.presentCompletionOverlay = { [weak self] summary in
             self?.overlay.present(summary)
@@ -176,6 +177,7 @@ final class NullSessionStore: SessionStoring {
     func session(id: UUID) throws -> SessionRecord? { nil }
     func markCommentStatus(sessionID: UUID, status: CommentStatus, commentID: String?) throws {}
     func todaySummary(now: Date, calendar: Calendar) throws -> TodaySummary { TodaySummary() }
+    func weeklySummary(now: Date, calendar: Calendar) throws -> WeeklySummary { WeeklySummary() }
     func recentSessions(limit: Int) throws -> [SessionRecord] { [] }
     func sessionsNeedingCommentRetry() throws -> [SessionRecord] { [] }
 }

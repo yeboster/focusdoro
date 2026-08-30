@@ -96,10 +96,17 @@ public enum CommentStatus: String, Codable, Sendable {
 public struct SelectedTask: Equatable, Codable, Sendable {
     public let id: String
     public let title: String
+    /// Project snapshot taken at selection time. Optional on the wire so a timer state
+    /// persisted by an earlier build still decodes, and so history keeps the project
+    /// even after the task is closed or moved.
+    public let projectID: String?
+    public let projectName: String?
 
-    public init(id: String, title: String) {
+    public init(id: String, title: String, projectID: String? = nil, projectName: String? = nil) {
         self.id = id
         self.title = title
+        self.projectID = projectID
+        self.projectName = projectName
     }
 }
 
@@ -110,6 +117,10 @@ public struct SessionRecord: Equatable, Sendable {
     public var id: UUID
     public var taskID: String
     public var taskTitleSnapshot: String
+    /// Project the task belonged to when the session ran. Kept as a snapshot so the
+    /// weekly breakdown survives the task being closed, moved, or the project renamed.
+    public var projectID: String?
+    public var projectNameSnapshot: String?
     public var startedAt: Date
     public var endedAt: Date?
     public var plannedDurationSeconds: Int32
@@ -124,6 +135,8 @@ public struct SessionRecord: Equatable, Sendable {
         id: UUID = UUID(),
         taskID: String,
         taskTitleSnapshot: String,
+        projectID: String? = nil,
+        projectNameSnapshot: String? = nil,
         startedAt: Date,
         endedAt: Date? = nil,
         plannedDurationSeconds: Int32,
@@ -137,6 +150,8 @@ public struct SessionRecord: Equatable, Sendable {
         self.id = id
         self.taskID = taskID
         self.taskTitleSnapshot = taskTitleSnapshot
+        self.projectID = projectID
+        self.projectNameSnapshot = projectNameSnapshot
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.plannedDurationSeconds = plannedDurationSeconds
@@ -178,6 +193,73 @@ public struct TodaySummary: Equatable, Sendable {
     public var investedSeconds: Int { focusedSeconds + partialSeconds }
     public var investedMinutes: Int { investedSeconds / 60 }
     public var partialMinutes: Int { partialSeconds / 60 }
+}
+
+// MARK: - Weekly stats
+
+/// One calendar day of the week view. `seconds` is invested time — completed plus
+/// stopped — so the chart matches what "Today" already reports.
+public struct DayTotal: Equatable, Sendable, Identifiable {
+    public var date: Date
+    public var seconds: Int
+    public var completedSessions: Int
+
+    public init(date: Date, seconds: Int = 0, completedSessions: Int = 0) {
+        self.date = date
+        self.seconds = seconds
+        self.completedSessions = completedSessions
+    }
+
+    public var id: Date { date }
+    public var minutes: Int { seconds / 60 }
+}
+
+/// Per-project totals for the week. `id` is nil for sessions recorded before the
+/// project snapshot existed, or for a task with no project.
+public struct ProjectTotal: Equatable, Sendable, Identifiable {
+    public var projectID: String?
+    public var name: String
+    public var seconds: Int
+    public var completedSessions: Int
+
+    public init(projectID: String?, name: String, seconds: Int, completedSessions: Int = 0) {
+        self.projectID = projectID
+        self.name = name
+        self.seconds = seconds
+        self.completedSessions = completedSessions
+    }
+
+    public var id: String { projectID ?? "__none__" }
+    public var minutes: Int { seconds / 60 }
+}
+
+public struct WeeklySummary: Equatable, Sendable {
+    /// The week the numbers cover, oldest day first, always seven entries so the chart
+    /// has a stable shape even on a Monday.
+    public var days: [DayTotal]
+    /// Highest first; the view shows the top few.
+    public var projects: [ProjectTotal]
+    public var startOfWeek: Date?
+
+    public init(days: [DayTotal] = [], projects: [ProjectTotal] = [], startOfWeek: Date? = nil) {
+        self.days = days
+        self.projects = projects
+        self.startOfWeek = startOfWeek
+    }
+
+    public var investedSeconds: Int { days.reduce(0) { $0 + $1.seconds } }
+    public var investedMinutes: Int { investedSeconds / 60 }
+    public var completedFocusSessions: Int { days.reduce(0) { $0 + $1.completedSessions } }
+    public var busiestDay: DayTotal? { days.filter { $0.seconds > 0 }.max { $0.seconds < $1.seconds } }
+    public var isEmpty: Bool { investedSeconds == 0 }
+
+    /// Average across the days that had any focus at all — averaging over seven days
+    /// makes every week look idle.
+    public var averageActiveDayMinutes: Int {
+        let active = days.filter { $0.seconds > 0 }
+        guard !active.isEmpty else { return 0 }
+        return active.reduce(0) { $0 + $1.seconds } / active.count / 60
+    }
 }
 
 // MARK: - Snapshot presented to the UI

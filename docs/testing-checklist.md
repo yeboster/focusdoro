@@ -7,7 +7,7 @@ Recorded 2026-08-29 on macOS 26.6 (arm64), Apple Swift 6.3.3, Command Line Tools
 
 ```bash
 make build     # swift build (debug)
-make test      # full unit suite (240 tests, 24 suites)
+make test      # full unit suite (280 tests, 32 suites)
 make release   # swift build -c release
 make app       # ./Scripts/build-app.sh — assembles build/Focusdoro.app, ad-hoc signed
 make run       # make app && open ./build/Focusdoro.app
@@ -46,7 +46,7 @@ None of this changes app behavior, and the package converts to an Xcode target u
 
 ## Automated evidence
 
-`make test` — **240 tests in 24 suites passed**.
+`make test` — **280 tests in 32 suites passed**.
 
 | Suite | Covers |
 | --- | --- |
@@ -74,6 +74,14 @@ None of this changes app behavior, and the package converts to an Xcode target u
 | Focus mode in the app model | starting a session engages for its length, finishing/stopping/breaking release, Slack connect storing a validated token, a rejected token discarded without leaking it, disconnect clearing everything, shortcut names offered from Shortcuts |
 | Focus mode preferences | preferences written before focus mode existed still decode to the all-off default, settings round trip, macOS Focus usable only with both shortcuts picked |
 | App composition | one status item, no titled window, idempotent popover, accessory activation policy, popover sized to the screen before it is shown |
+| Login item service | `SMAppService` status mapping, enable and disable writes, a no-op re-register, approval-pending reported as on, and an unbundled process reporting unavailable |
+| Launch at login in the app model | status refreshed on start, the toggle writing through, an approval-pending machine getting an info banner, and a failed write getting a warning banner without losing the real status |
+| Task highlight maths | arrow movement wrapping at both ends, entering an empty highlight from the edge the key points at, first/last jumps, an empty list, and a highlight dropped when the list no longer holds it |
+| Keyboard picking | arrowing through sections and through search results, return starting the highlighted task, escape clearing search before the highlight, and a re-filtered list re-entering at the first row |
+| Weekly aggregation | seven day buckets oldest first, local day boundaries, stopped time counted as invested but not as a completed session, non-focus kinds skipped, sessions outside the week ignored, per-project rollup with the newest name winning, unassigned tasks bucketed once, and empty weeks |
+| Weekly chart | bar heights scaled against the peak, a minimum visible height for a non-zero day, all-zero weeks flat, and weekday initials in calendar order |
+| Weekly summary from the store | the Core Data read filtered to this week's focus sessions, the project snapshot surviving a closed task, and the null store returning an empty summary |
+| Weekly stats in the app model | history reload filling the week, a day boundary refreshing it, and the summary surviving a disconnect |
 
 The two AppKit suites (**View rendering**, **App composition**) need a window server:
 they are skipped when `CI` is set, when `FOCUSDORO_HEADLESS=1` is set, or when the
@@ -99,6 +107,10 @@ Automated coverage cannot exercise the AppKit shell end to end. Run these by han
       plain-language error with the token never echoed.
 - [ ] **Task search.** Today and overdue tasks appear first; search matches tasks from
       any project, including ones with no due date.
+- [ ] **Keyboard picker.** Opening the picker puts the caret in the search field. ↑/↓
+      move the highlight (wrapping at both ends) and scroll it into view, ⏎ starts a
+      focus on the highlighted task, and ⎋ clears the search text first, then the
+      highlight.
 - [ ] **Start focus.** Selecting a task and starting shows the countdown; the menu-bar
       title mirrors it.
 - [ ] **Close popover.** Closing the popover leaves the timer running and the menu-bar
@@ -147,6 +159,16 @@ Automated coverage cannot exercise the AppKit shell end to end. Run these by han
 - [ ] **Full-screen app.** With another app full-screen, the overlay still appears
       (`.canJoinAllSpaces`, `.fullScreenAuxiliary`); if it cannot, the notification is
       the fallback.
+- [ ] **Launch at login.** Turning on "Launch at login" in Settings adds Focusdoro to
+      System Settings › General › Login Items; turning it off removes it. Toggling it
+      off in System Settings and reopening Settings shows the toggle off — the system
+      is the only source of truth. On a managed Mac the toggle reports pending
+      approval rather than silently failing.
+- [ ] **This week.** The history screen shows seven bars oldest first, today included,
+      with the busiest day accented and the project breakdown summing to the week's
+      minutes. Finishing a focus updates it without reopening the popover, and a
+      session run against a task in a project still shows that project after the task
+      is closed in Todoist.
 - [ ] **Token redaction.** With the app running, `log stream --predicate 'process ==
       "Focusdoro"'` shows no token. Check `~/Library/Logs/DiagnosticReports` after a
       forced crash: no token in the report.

@@ -4,6 +4,8 @@ import SwiftUI
 /// so this renders with no network round trip (acceptance criterion 10).
 public struct HistoryView: View {
     @Bindable var model: AppModel
+    /// Weekday labels follow the same calendar the store bucketed the week with.
+    private let calendar: Calendar = .current
 
     public init(model: AppModel) {
         self.model = model
@@ -13,6 +15,7 @@ public struct HistoryView: View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             statsRow
             partialNote
+            weekSection
             recentSection
         }
     }
@@ -66,6 +69,96 @@ public struct HistoryView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value) \(unit ?? "")")
     }
+
+
+    // MARK: - This week
+
+    /// Seven bars plus the projects the week went into. Everything is local, so this
+    /// renders offline exactly like the today stats above it.
+    @ViewBuilder
+    private var weekSection: some View {
+        if !model.weeklySummary.isEmpty {
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                HStack(alignment: .firstTextBaseline) {
+                    SectionLabel("This week")
+                    Spacer()
+                    Text("\(model.weeklySummary.investedMinutes) min · \(model.weeklySummary.completedFocusSessions) session\(model.weeklySummary.completedFocusSessions == 1 ? "" : "s")")
+                        .font(Theme.Font.meta)
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                }
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    weekChart
+                    if !model.weeklySummary.projects.isEmpty {
+                        Rectangle()
+                            .fill(Theme.Palette.cardStroke)
+                            .frame(height: 1)
+                        projectBreakdown
+                    }
+                }
+                .padding(Theme.Space.m)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .cardSurface()
+            }
+        }
+    }
+
+    private var weekChart: some View {
+        let summary = model.weeklySummary
+        let heights = WeeklyStats.barHeights(for: summary, maxHeight: Self.chartHeight)
+        let initials = WeeklyStats.dayInitials(for: summary, calendar: calendar)
+        let busiest = summary.busiestDay?.date
+        return HStack(alignment: .bottom, spacing: Theme.Space.s) {
+            ForEach(Array(summary.days.enumerated()), id: \.element.id) { index, day in
+                VStack(spacing: 5) {
+                    // Bars grow from a common baseline, so the empty days still occupy
+                    // their slot and the week keeps its shape.
+                    ZStack(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                            .frame(height: Self.chartHeight)
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(day.date == busiest ? Theme.Palette.accent : Theme.Palette.accent.opacity(0.45))
+                            .frame(height: heights.indices.contains(index) ? heights[index] : 0)
+                    }
+                    Text(initials.indices.contains(index) ? initials[index] : "")
+                        .font(Theme.Font.statLabel)
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(Self.dayFormatter.string(from: day.date)): \(day.minutes) minutes")
+            }
+        }
+    }
+
+    private var projectBreakdown: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            // Three rows: enough to see where the week went, short enough that the
+            // popover does not need another scroll view.
+            ForEach(model.weeklySummary.projects.prefix(3)) { project in
+                HStack(spacing: Theme.Space.s) {
+                    Text(project.name)
+                        .font(Theme.Font.meta)
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: Theme.Space.s)
+                    Text("\(project.minutes) min")
+                        .font(Theme.Font.meta.monospacedDigit())
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    private static let chartHeight: CGFloat = 34
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("EEEE")
+        return formatter
+    }()
 
     // MARK: - Recent sessions
 
