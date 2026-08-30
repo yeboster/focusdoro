@@ -17,7 +17,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Report the toolchain
         run: |
@@ -27,7 +27,7 @@ jobs:
       # Keyed on the manifest so a dependency change misses the cache; the Swift
       # version is in the key because .build is not portable across toolchains.
       - name: Cache SwiftPM build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .build
           key: ${{ runner.os }}-spm-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ hashFiles('Sources/**/*.swift', 'Tests/**/*.swift') }}
@@ -44,7 +44,7 @@ jobs:
     timeout-minutes: 20
     needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build the bundle
         run: make app
@@ -63,7 +63,7 @@ jobs:
           codesign --verify --strict --verbose=2 "$APP"
 
       - name: Upload the bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Focusdoro-app
           path: build/Focusdoro.app
