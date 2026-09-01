@@ -92,6 +92,8 @@ public final class AppModel {
     /// without creating a focus session or Todoist comment.
     public private(set) var pendingPickerCompletionTask: TodoistTask?
     public var banner: BannerMessage?
+    /// Picker composer stays collapsed until plus button requests it.
+    public var showsTaskComposer = false
     public var tokenDraft: String = ""
     /// New picker task title. Cleared before any API call so stale text cannot be sent twice.
     public var newTaskDraft: String = ""

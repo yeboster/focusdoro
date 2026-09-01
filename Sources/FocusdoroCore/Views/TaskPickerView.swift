@@ -7,6 +7,7 @@ public struct TaskPickerView: View {
     @Bindable var model: AppModel
     @Bindable var sync: TodoistSync
     @FocusState private var searchFocused: Bool
+    @FocusState private var quickAddFocused: Bool
     @Environment(\.popoverMaxHeight) private var popoverMaxHeight
 
     public init(model: AppModel) {
@@ -17,21 +18,44 @@ public struct TaskPickerView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             header
-            quickAdd
+            if model.showsTaskComposer {
+                quickAdd
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity
+                    ))
+            }
             searchField
             scopePicker
             controls
             content
         }
-        // The picker is a keyboard surface first: the field takes focus on open so
-        // arrows and Return work without a click.
-        .onAppear { searchFocused = true }
+        // Search owns focus while composer is collapsed; revealing composer transfers
+        // focus so typing can begin immediately.
+        .onAppear { searchFocused = !model.showsTaskComposer }
+        .animation(.easeOut(duration: 0.18), value: model.showsTaskComposer)
     }
 
     private var header: some View {
         HStack {
             SectionLabel("Pick a Todoist task")
             Spacer()
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) { model.showsTaskComposer.toggle() }
+                if model.showsTaskComposer {
+                    quickAddFocused = true
+                } else {
+                    model.newTaskDraft = ""
+                    searchFocused = true
+                }
+            } label: {
+                Image(systemName: model.showsTaskComposer ? "xmark" : "plus")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(QuietButtonStyle())
+            .accessibilityLabel(model.showsTaskComposer ? "Hide new task form" : "Create Todoist task")
+
             Button {
                 Task { await sync.refresh() }
             } label: {
@@ -50,17 +74,39 @@ public struct TaskPickerView: View {
                 .textFieldStyle(.plain)
                 .font(Theme.Font.body)
                 .foregroundStyle(Theme.Palette.textPrimary)
+                .focused($quickAddFocused)
                 .disabled(model.isBusy)
-                .onSubmit { Task { await model.createTaskAndFocus() } }
+                .onSubmit { createAndFocus() }
+                .layoutPriority(1)
             Button("Create & focus") {
-                Task { await model.createTaskAndFocus() }
+                createAndFocus()
             }
-            .buttonStyle(SecondaryActionStyle())
+            .font(Theme.Font.meta.weight(.semibold))
+            .foregroundStyle(Theme.Palette.textSecondary)
+            .frame(width: 116, height: 28)
+            .background(
+                Color.white.opacity(0.06),
+                in: RoundedRectangle(cornerRadius: Theme.Radius.chip - 2, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.chip - 2, style: .continuous)
+                    .strokeBorder(Theme.Palette.cardStroke, lineWidth: 1)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Create task and start focus")
             .disabled(model.newTaskDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isBusy)
         }
         .padding(.horizontal, Theme.Space.s + 2)
-        .frame(height: 32)
+        .frame(minHeight: 36)
         .cardSurface(radius: Theme.Radius.chip)
+    }
+
+    private func createAndFocus() {
+        Task {
+            await model.createTaskAndFocus()
+            guard model.snapshot.state.activePhase != nil else { return }
+            withAnimation(.easeOut(duration: 0.18)) { model.showsTaskComposer = false }
+        }
     }
 
     private var searchField: some View {
@@ -323,7 +369,10 @@ public struct TaskPickerView: View {
         }
     }
 
-    private var listCap: CGFloat { Theme.Metric.listCap(forPopoverHeight: popoverMaxHeight) }
+    private var listCap: CGFloat {
+        let composerChrome: CGFloat = model.showsTaskComposer ? 52 : 0
+        return max(108, Theme.Metric.listCap(forPopoverHeight: popoverMaxHeight) - composerChrome)
+    }
 
     private func statusBlock(icon: String, title: String, detail: String?, retry: Bool) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {

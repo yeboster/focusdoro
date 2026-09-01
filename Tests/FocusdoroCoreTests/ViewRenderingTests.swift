@@ -133,6 +133,24 @@ struct ViewRenderingTests {
         check(PopoverView(model: searching), "picker searching")
     }
 
+    @Test("Task composer stays collapsed until requested and fits the popover")
+    func compactTaskComposer() {
+        let collapsedModel = AppModel.preview(route: .tasks)
+        let collapsed = measure(TaskPickerView(model: collapsedModel))
+        let expandedModel = AppModel.preview(route: .tasks)
+        expandedModel.showsTaskComposer = true
+        let expandedView = TaskPickerView(model: expandedModel)
+        let expanded = measure(expandedView)
+        let intrinsicHost = NSHostingView(rootView: expandedView)
+        intrinsicHost.layoutSubtreeIfNeeded()
+
+        #expect(collapsed.width == Theme.Metric.popoverWidth)
+        #expect(expanded.width == Theme.Metric.popoverWidth)
+        #expect(intrinsicHost.fittingSize.width <= Theme.Metric.popoverWidth, "composer content overflows popover width")
+        #expect(expanded.height > collapsed.height)
+        #expect(expanded.height - collapsed.height < 60, "composer consumes too much vertical space")
+    }
+
     @Test("A short screen shrinks the popover instead of overflowing it")
     func respectsScreenHeight() {
         let many = (0..<120).map { index in
@@ -146,13 +164,19 @@ struct ViewRenderingTests {
         }
         let model = AppModel.preview(route: .tasks, sync: .preview(tasks: many))
 
-        for limit in [Theme.Metric.popoverFallbackHeight, 520, 400] as [CGFloat] {
-            let host = NSHostingView(
-                rootView: PopoverRoot(model: model, maxHeight: limit)
-                    .frame(width: Theme.Metric.popoverWidth)
-            )
-            host.layoutSubtreeIfNeeded()
-            #expect(host.fittingSize.height <= limit, "popover is \(Int(host.fittingSize.height))pt in a \(Int(limit))pt space")
+        for composerExpanded in [false, true] {
+            model.showsTaskComposer = composerExpanded
+            for limit in [Theme.Metric.popoverFallbackHeight, 520, 400] as [CGFloat] {
+                let host = NSHostingView(
+                    rootView: PopoverRoot(model: model, maxHeight: limit)
+                        .frame(width: Theme.Metric.popoverWidth)
+                )
+                host.layoutSubtreeIfNeeded()
+                #expect(
+                    host.fittingSize.height <= limit,
+                    "popover is \(Int(host.fittingSize.height))pt in a \(Int(limit))pt space (composer: \(composerExpanded))"
+                )
+            }
         }
     }
 
