@@ -3,3 +3,26 @@
 .DS_Store
 build/
 .superpowers/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.mobileprovision
+
+# Xcode and local state
+*.xcuserstate
+xcuserdata/
+.xcworkspace/xcuserdata/
+DerivedData/
+
+# Local databases, logs, and crash output
+*.sqlite
+*.sqlite-*
+*.db
+*.log
+*.dmp
+*.dump
