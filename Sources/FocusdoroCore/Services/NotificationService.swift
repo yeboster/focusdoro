@@ -6,12 +6,12 @@ public protocol NotificationPresenting: AnyObject {
     func requestAuthorizationIfNeeded() async -> Bool
     func notifyFocusComplete(taskTitle: String, nextBreak: TimerPhase)
     func notifyBreakComplete(nextPhase: TimerPhase)
-    func notifyUpdateAvailable()
+    func notifyUpdateAvailable(automaticInstallEnabled: Bool)
     func playCompletionSound()
 }
 
 public extension NotificationPresenting {
-    func notifyUpdateAvailable() {}
+    func notifyUpdateAvailable(automaticInstallEnabled: Bool) {}
 }
 
 /// Pure preference gate, split out so it can be tested without a notification centre.
@@ -36,6 +36,12 @@ public enum NotificationPolicy {
         let trimmed = taskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let subject = trimmed.isEmpty ? "your task" : "“\(trimmed)”"
         return "Focus on \(subject) is done. \(nextBreak.displayName) is \(breakMinutes) min."
+    }
+
+    public static func updateAvailableBody(automaticInstallEnabled: Bool) -> String {
+        automaticInstallEnabled
+            ? "Automatic installation is starting."
+            : "An update is available to review and install."
     }
 
     public static func isInstallUpdateAction(_ identifier: String) -> Bool {
@@ -111,11 +117,11 @@ public final class NotificationService: NotificationPresenting {
         center.setNotificationCategories([category])
     }
 
-    public func notifyUpdateAvailable() {
+    public func notifyUpdateAvailable(automaticInstallEnabled: Bool) {
         guard let center, NotificationPolicy.shouldNotify(preferences: preferences.preferences, authorized: authorized) else { return }
         let content = UNMutableNotificationContent()
         content.title = "Focusdoro update available"
-        content.body = "A verified update is ready to install."
+        content.body = NotificationPolicy.updateAvailableBody(automaticInstallEnabled: automaticInstallEnabled)
         content.categoryIdentifier = Self.updateCategoryIdentifier
         let request = UNNotificationRequest(identifier: "focusdoro-update", content: content, trigger: nil)
         center.add(request, withCompletionHandler: nil)

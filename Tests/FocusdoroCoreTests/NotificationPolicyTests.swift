@@ -9,6 +9,12 @@ struct UpdateNotificationPolicyTests {
         #expect(NotificationService.installUpdateActionIdentifier == "INSTALL_UPDATE")
     }
 
+    @Test("Update notification modes use accurate copy")
+    func updateNotificationCopy() {
+        #expect(NotificationPolicy.updateAvailableBody(automaticInstallEnabled: false) == "An update is available to review and install.")
+        #expect(NotificationPolicy.updateAvailableBody(automaticInstallEnabled: true) == "Automatic installation is starting.")
+    }
+
     @Test("Only install action routes updater")
     func updateActionRouting() {
         #expect(NotificationPolicy.isInstallUpdateAction("INSTALL_UPDATE"))

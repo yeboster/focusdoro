@@ -728,12 +728,17 @@ public final class AppModel {
                 do {
                     if let release = try await updateChecker.check() {
                         availableUpdate = release
-                        notifications.notifyUpdateAvailable()
-                        banner = BannerMessage(
-                            kind: .info,
-                            text: "A Focusdoro update is available.",
-                            offersUpdateInstall: true
-                        )
+                        let automaticInstallEnabled = preferences.automaticInstallUpdates
+                        notifications.notifyUpdateAvailable(automaticInstallEnabled: automaticInstallEnabled)
+                        if automaticInstallEnabled {
+                            await installUpdate()
+                        } else {
+                            banner = BannerMessage(
+                                kind: .info,
+                                text: "A Focusdoro update is available.",
+                                offersUpdateInstall: true
+                            )
+                        }
                     }
                 } catch {
                     // Update availability never changes timer, Todoist, or presentation state.

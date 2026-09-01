@@ -10,12 +10,13 @@ private final class SpyNotifications: NotificationPresenting, @unchecked Sendabl
     private var _focusCompleteCalls: [(String, TimerPhase)] = []
     private var _breakCompleteCalls: [TimerPhase] = []
     private var _soundCount = 0
-    private var _updateCount = 0
+    private var _updateModes: [Bool] = []
 
     var focusCompleteCalls: [(String, TimerPhase)] { lock.withLock { _focusCompleteCalls } }
     var breakCompleteCalls: [TimerPhase] { lock.withLock { _breakCompleteCalls } }
     var soundCount: Int { lock.withLock { _soundCount } }
-    var updateCount: Int { lock.withLock { _updateCount } }
+    var updateCount: Int { lock.withLock { _updateModes.count } }
+    var updateModes: [Bool] { lock.withLock { _updateModes } }
 
     func requestAuthorizationIfNeeded() async -> Bool { true }
     func notifyFocusComplete(taskTitle: String, nextBreak: TimerPhase) {
@@ -24,7 +25,9 @@ private final class SpyNotifications: NotificationPresenting, @unchecked Sendabl
     func notifyBreakComplete(nextPhase: TimerPhase) {
         lock.withLock { _breakCompleteCalls.append(nextPhase) }
     }
-    func notifyUpdateAvailable() { lock.withLock { _updateCount += 1 } }
+    func notifyUpdateAvailable(automaticInstallEnabled: Bool) {
+        lock.withLock { _updateModes.append(automaticInstallEnabled) }
+    }
     func playCompletionSound() { lock.withLock { _soundCount += 1 } }
 }
 
@@ -585,6 +588,65 @@ struct AppModelTests {
         let saved = try #require(harness.model.recentSessions.first)
         #expect(saved.status == .completed)
         #expect(saved.elapsedDurationSeconds == 600)
+    }
+
+    @Test("Update discovery notifies but does not install when automatic installation is off")
+    func disabledAutomaticUpdateInstallationOnlyAnnounces() async throws {
+        let release = UpdateRelease(
+            commitSHA: "0123456789abcdef0123456789abcdef01234567",
+            assetURL: URL(string: "https://example.com/Focusdoro.dmg")!,
+            assetDigest: "sha256:" + String(repeating: "a", count: 64)
+        )
+        let updater = StubUpdater(release: release)
+        let harness = try Harness(updateChecker: updater, updateInstaller: updater)
+        harness.model.preferences.automaticInstallUpdates = false
+
+        await harness.model.start()
+        try await waitUntil("the update is announced") { harness.notifications.updateCount == 1 }
+
+        #expect(await updater.installed.isEmpty)
+        #expect(harness.notifications.updateModes == [false])
+        #expect(harness.model.banner?.offersUpdateInstall == true)
+        harness.model.shutdown()
+    }
+
+    @Test("Update discovery installs once when automatic installation is on")
+    func enabledAutomaticUpdateInstallationInstallsOnce() async throws {
+        let release = UpdateRelease(
+            commitSHA: "0123456789abcdef0123456789abcdef01234567",
+            assetURL: URL(string: "https://example.com/Focusdoro.dmg")!,
+            assetDigest: "sha256:" + String(repeating: "a", count: 64)
+        )
+        let updater = StubUpdater(release: release)
+        let harness = try Harness(updateChecker: updater, updateInstaller: updater)
+        harness.model.preferences.automaticInstallUpdates = true
+        var terminationRequested = false
+        harness.model.onUpdateInstallStarted = { terminationRequested = true }
+
+        await harness.model.start()
+        try await waitUntil("the update installs") { terminationRequested }
+
+        #expect(await updater.installed == [release])
+        #expect(harness.notifications.updateModes == [true])
+        harness.model.shutdown()
+    }
+
+    @Test("Automatic installation remains enabled after staging an update")
+    func automaticUpdateInstallationPreferenceSurvivesStaging() async throws {
+        let release = UpdateRelease(
+            commitSHA: "0123456789abcdef0123456789abcdef01234567",
+            assetURL: URL(string: "https://example.com/Focusdoro.dmg")!,
+            assetDigest: "sha256:" + String(repeating: "a", count: 64)
+        )
+        let updater = DelayedStubUpdater(release: release)
+        let harness = try Harness(updateChecker: updater, updateInstaller: updater)
+        harness.model.preferences.automaticInstallUpdates = true
+
+        await harness.model.start()
+        try await waitUntil("the update starts installing") { harness.model.isInstallingUpdate }
+
+        #expect(harness.preferences.preferences.automaticInstallUpdates)
+        harness.model.shutdown()
     }
 
     @Test("Installing an announced update requests app termination after staging")
