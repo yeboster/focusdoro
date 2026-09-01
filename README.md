@@ -31,7 +31,7 @@ make install # replace /Applications/Focusdoro.app and relaunch it
 
 `make install` quits Focusdoro, deletes `/Applications/Focusdoro.app`, replaces it with local build, then opens replacement. Todoist token, local history, and in-flight timer state live outside bundle, so replacement preserves them.
 
-Run bundled app rather than raw binary: macOS notifications and Keychain item need bundle identifier. On first launch, paste personal Todoist API token from Todoist → Settings → Integrations → Developer.
+Run bundled app rather than raw binary: macOS notifications require a bundle identifier, and a bundle identifier selects production bundle-scoped Keychain service. A raw binary uses separate fallback Keychain item. On first launch, paste personal Todoist API token from Todoist → Settings → Integrations → Developer.
 
 Releases and CI artifacts: [GitHub Releases](https://github.com/yeboster/focusdoro/releases). Current builds are ad-hoc signed. Their structural signature and release digest checks help detect corruption, but do not prove Developer ID publisher identity. Gatekeeper/notarization and publisher-authenticated automatic updates are not available until Developer ID signing, notarization, and signer pinning ship.
 

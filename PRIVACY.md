@@ -18,7 +18,7 @@ Focusdoro stores non-secret preferences and any in-flight timer deadline in `Use
 
 History includes Todoist task and project snapshots, session times, durations, completion state, and Todoist comment status. This supports history, streaks, and retries without another network round trip. Local storage is plaintext to software running as your macOS user and may be included in system backups.
 
-Disconnecting Todoist removes its Keychain token and task cache but keeps local history. Delete Focusdoro history by removing the app's local storage after quitting Focusdoro; this also removes stored session data. Removing a token does not remove history.
+Disconnecting Todoist removes its Keychain token and task cache but keeps local history. To reset Focusdoro local state, quit Focusdoro, remove its `~/Library/Application Support/Focusdoro` directory, then run `defaults delete so.bon.focusdoro` to remove only Focusdoro preferences and any in-flight timer state. This command does not remove other apps' defaults. Remove the Todoist Keychain entry separately in Keychain Access. Removing a token alone does not remove history.
 
 ### Notifications and macOS Focus
 
