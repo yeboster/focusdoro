@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+public enum MenuBarClick: Equatable, Sendable {
+    case togglePopover
+    case showQuitMenu
+
+    public static func action(for eventType: NSEvent.EventType) -> MenuBarClick {
+        eventType == .rightMouseUp ? .showQuitMenu : .togglePopover
+    }
+}
+
 /// `NSStatusItem` plus one anchored `NSPopover`. Open/close are idempotent, so a
 /// double hotkey press or a click while already open cannot create a second popover.
 @MainActor
@@ -8,12 +17,14 @@ public final class MenuBarController: NSObject, NSPopoverDelegate {
     private let model: AppModel
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
+    private let terminate: @MainActor () -> Void
     private var hosting: NSHostingController<PopoverRoot>!
     /// Closes the popover when the user clicks anywhere else.
     private var eventMonitor: Any?
 
-    public init(model: AppModel) {
+    public init(model: AppModel, terminate: @escaping @MainActor () -> Void = { NSApp.terminate(nil) }) {
         self.model = model
+        self.terminate = terminate
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
     }
@@ -43,6 +54,7 @@ public final class MenuBarController: NSObject, NSPopoverDelegate {
         button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         button.target = self
         button.action = #selector(statusItemClicked)
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         button.setAccessibilityLabel("Focusdoro")
     }
 
@@ -57,7 +69,39 @@ public final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     @objc private func statusItemClicked() {
-        togglePopover()
+        handleStatusItemClick(eventType: NSApp.currentEvent?.type ?? .leftMouseUp)
+    }
+
+    public func handleStatusItemClick(eventType: NSEvent.EventType) {
+        switch MenuBarClick.action(for: eventType) {
+        case .togglePopover:
+            togglePopover()
+        case .showQuitMenu:
+            closePopover()
+            showQuitMenu()
+        }
+    }
+
+    public var statusContextMenuItemTitles: [String] {
+        ["Quit Focusdoro"]
+    }
+
+    public func invokeQuitAction() {
+        terminate()
+    }
+
+    private func showQuitMenu() {
+        let menu = NSMenu()
+        let quit = NSMenuItem(title: "Quit Focusdoro", action: #selector(quitFromStatusMenu), keyEquivalent: "q")
+        quit.target = self
+        menu.addItem(quit)
+        statusItem.menu = menu
+        defer { statusItem.menu = nil }
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+
+    @objc private func quitFromStatusMenu() {
+        invokeQuitAction()
     }
 
     // MARK: - Popover

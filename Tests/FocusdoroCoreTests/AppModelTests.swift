@@ -734,6 +734,15 @@ struct AppModelTests {
     }
 }
 
+@Suite("Menu bar click routing")
+struct MenuBarClickTests {
+    @Test("Left click toggles popover and right click opens Quit menu")
+    func routesMouseButtons() {
+        #expect(MenuBarClick.action(for: .leftMouseUp) == .togglePopover)
+        #expect(MenuBarClick.action(for: .rightMouseUp) == .showQuitMenu)
+    }
+}
+
 @Suite("App composition", .enabled(if: TestEnvironment.hasWindowServer))
 @MainActor
 struct AppCompositionSmokeTests {
@@ -761,6 +770,24 @@ struct AppCompositionSmokeTests {
 
         controller.closePopover()
         #expect(!controller.isPopoverShown)
+    }
+
+    @Test("Menu bar keeps left popover click and exposes right-click Quit")
+    func menuBarClickActions() throws {
+        let harness = try Harness()
+        var quitCount = 0
+        let controller = MenuBarController(model: harness.model, terminate: { quitCount += 1 })
+        controller.start()
+        defer { controller.shutdown() }
+
+        #expect(controller.statusContextMenuItemTitles == ["Quit Focusdoro"])
+
+        // Pure routing test covers left-click behavior without racing other WindowServer
+        // tests that may own the transient popover at the same instant.
+        #expect(MenuBarClick.action(for: .leftMouseUp) == .togglePopover)
+
+        controller.invokeQuitAction()
+        #expect(quitCount == 1)
     }
 
     @Test("The popover is sized to fit the screen before it is shown")
