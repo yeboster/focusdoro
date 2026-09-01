@@ -15,6 +15,9 @@ Everything about how the Todoist personal API token is stored, read, and never l
 - **Disconnect removes the Keychain item but keeps local history.** `TodoistSync.disconnect()` calls `tokenStore.deleteToken()` and clears the in-memory task cache, but never touches `SessionStore` — past sessions, comments, and stats survive a disconnect.
 - **An empty stored string is treated as "no token."** `readToken()` returns `nil` for an empty decoded string, not `""`, so callers checking `hasToken` don't get a false positive.
 
+- **Legacy credential migration.** Older releases could leave a separate Slack Keychain item. Current Focusdoro performs a one-time best-effort deletion without reading its value; failure leaves migration pending for retry and never affects Todoist token or timer behavior.
+- **Update trust boundary.** Current release artifacts are ad-hoc signed. Digest, bundle, embedded-commit, and structural signature checks detect corruption but do not authenticate publisher identity. Developer ID signing, notarization, and signer pinning are required before treating automatic updates as publisher-authenticated.
+
 ## Key types / files
 
 - `Sources/FocusdoroCore/Services/KeychainStore.swift` — `TokenStoring` protocol, `KeychainStore`, `KeychainError`, `InMemoryTokenStore` (test double).

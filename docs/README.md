@@ -1,10 +1,24 @@
-# Focusdoro handoff
+# Focusdoro documentation
 
-Greenfield native macOS Pomodoro app. Read these in order:
+Current technical documentation:
 
-1. [Product and design spec](superpowers/specs/2026-08-29-focusdoro-design.md)
-2. [Implementation plan](superpowers/plans/2026-08-29-focusdoro-implementation-plan.md)
+- [Todoist sync](specs/todoist-sync.md) — API v1 contract and task cache.
+- [Security](specs/security.md) — Keychain, token handling, and update trust boundary.
+- [Focus mode](specs/focus-mode.md) — macOS Focus through user-selected Shortcuts.
+- [Notifications and hotkeys](specs/notifications-and-hotkeys.md) — notification privacy, updates, and global shortcuts.
+- [Preferences and settings](specs/preferences-and-settings.md)
+- [Timer engine](specs/timer-engine.md)
+- [Completion and history](specs/completion-and-history.md)
+- [Task picker](specs/task-picker.md)
+- [Launch at login](specs/launch-at-login.md)
+- [Weekly stats](specs/weekly-stats.md)
+- [Testing checklist](testing-checklist.md)
 
-Chosen UI direction: task-first macOS popover, inspired by the supplied Look2 screenshot's material language, but with original Focusdoro hierarchy, copy, and controls.
+Repository policies:
 
-Implementation target: Swift/AppKit shell with SwiftUI views, local Core Data history, Keychain token storage, URLSession Todoist REST integration, native notifications/sound, and Carbon global hotkeys. Personal MVP; no OAuth or backend.
+- [Security reporting](../SECURITY.md)
+- [Privacy](../PRIVACY.md)
+- [Contributing](../CONTRIBUTING.md)
+- [MIT License](../LICENSE)
+
+`superpowers/specs/` and `superpowers/plans/` preserve historical design and implementation records. They are not current API or release guidance; use current specs above for shipped behavior.

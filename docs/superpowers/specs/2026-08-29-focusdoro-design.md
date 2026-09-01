@@ -1,3 +1,5 @@
+> Historical document. Todoist REST v2 details are superseded by the shipped API v1 contract in `docs/specs/todoist-sync.md`.
+
 # Focusdoro Product and Design Specification
 
 **Status:** Approved direction for handoff

@@ -2,39 +2,32 @@
 
 ## What it does
 
-Three OS-integration services. `NotificationService` (`Sources/FocusdoroCore/Services/NotificationService.swift`) posts local `UNUserNotificationCenter` notifications and plays a completion sound (`NSSound`) when a focus or break phase ends. It also registers an **Install** action for update notifications. `GitHubUpdateService` discovers and verifies immutable continuous releases, then stages a safe replacement. `HotKeyService` (`Sources/FocusdoroCore/Services/HotKeyService.swift`) registers global keyboard shortcuts via Carbon (`RegisterEventHotKey`/`InstallEventHandler`) so the toggle-popover and start/stop actions work even when Focusdoro doesn't have focus.
+`NotificationService` posts local `UNUserNotificationCenter` notifications and plays a completion sound. It registers an **Install** action for update notifications. `GitHubUpdateService` checks public release metadata and can stage a replacement. `HotKeyService` registers global toggle-popover and start/stop shortcuts through Carbon.
 
-## Rules it upholds
+## Rules
 
-- **Carbon, not a third-party hotkey package.** Chosen specifically to keep the app's runtime dependency footprint at zero (no Sparkle-adjacent or HotKey-package dependency) — it's the only global-hotkey mechanism available without one.
-- **The whole binding set is validated before any registration touches Carbon.** `HotKeyService.validate(bindings)` checks every binding has `isValid` (at least one modifier) and that no two actions share the same keycode+modifier pair, throwing `.invalidBinding`/`.duplicateBinding` before `register(bindings:)` calls `RegisterEventHotKey` for anything — so a bad second binding can't leave the first one half-registered. `register` also calls `validate` itself as its first step, and rolls back (`unregisterAll()`) if any individual `RegisterEventHotKey` call fails partway through.
-- **Deterministic registration order.** Bindings are registered sorted by `action.rawValue`, so a registration failure names a stable, reproducible action rather than depending on dictionary iteration order.
-- **Hotkey handlers always land on the main thread.** Carbon's dispatcher already runs on the main run loop, but `HotKeyService.handle(id:)` still hops through `DispatchQueue.main.async` to make that a hard guarantee rather than an assumption.
-- **First registrant wins.** This is an OS-level Carbon limitation, not something the app can override: if another running app has already registered the same keycode+modifier combination, Focusdoro's `RegisterEventHotKey` call fails and the user sees `HotKeyError.registrationFailed`'s message ("another app may already own it").
-- **A hotkey can't reach a secure input field.** Also an OS-level restriction: while a secure text field (e.g. a password field in another app) has focus system-wide, Carbon global hotkeys are suppressed by the OS. Not something Focusdoro's code works around.
-- **Notifications require a bundle identifier.** `NotificationService.defaultCenter()` returns `nil` (rather than calling `UNUserNotificationCenter.current()`, which traps) when `Bundle.main.bundleIdentifier == nil` — true for a bare `swift run` binary, false for the signed `build/Focusdoro.app` bundle produced by `make app`. Every notification-posting path checks for a non-nil `center` first.
-- **Authorization is requested once, lazily, only if notifications are enabled.** `requestAuthorizationIfNeeded()` guards on `didRequest`; `AppLifecycleCoordinator` only calls it after `model.start()` and only if `model.preferences.notificationsEnabled`.
-- **Update installs are opt-in and verified.** Launch and six-hour checks read public GitHub release metadata. One notification is posted per remote commit. Clicking **Install** downloads `Focusdoro.dmg`, checks GitHub's immutable SHA-256 asset digest, mounts read-only, verifies bundle id + embedded commit + strict code signature, stages a copy, then quits. A detached helper replaces `/Applications/Focusdoro.app`, rolls back on failure, and relaunches. Update errors never affect timer state.
-- **Continuous releases are immutable.** CI publishes `continuous-<40-character SHA>` with one `Focusdoro.dmg` after every green `main` push. Built app embeds same SHA as `FocusdoroBuildCommit`.
-- **Sound and notification gating is centralized and pure.** `NotificationPolicy.shouldNotify(preferences:authorized:)` / `shouldPlaySound(preferences:)` are free functions taking `AppPreferences` + authorization state, tested without any `UNUserNotificationCenter` involved.
-- **The completion sound is a named system sound, not a bundled asset.** `NSSound(named:)` — no binary payload shipped, and it automatically honors the system's output device and mute state.
+- **Bundle required.** Notification center is unavailable for bare command-line binary; run `make app`, `make run`, or installed app.
+- **Authorization is lazy.** Focusdoro requests notification authorization once, only when notifications preference is enabled.
+- **Task names are private by default.** Completion notifications use generic text unless user enables **Show task names in notifications**. Opt-in titles can appear on lock screens, Notification Center, screen shares, and configured notification surfaces.
+- **Update discovery stays on.** Launch and periodic checks read public GitHub release metadata. One availability notification is posted for each remote commit.
+- **Automatic installation is explicit and persistent.** **Install updates automatically** defaults off. Disabled mode never downloads or installs automatically; user can review/install update. Enabled mode may download, validate, stage, and relaunch on discovery. Setting persists through relaunch and app replacement until user disables it. Installer concurrency guard prevents duplicate staging.
+- **Current release trust is limited.** Update path checks HTTPS, release digest, bundle identifier, embedded commit, and structural code signature. Current artifacts are ad-hoc signed: these checks detect corruption but do not authenticate Developer ID publisher. Developer ID signing, notarization, and signer pinning are required before publisher-authenticated updates can be claimed.
+- **Update failures never affect timer state.**
+- **Hotkeys have no third-party runtime dependency.** `HotKeyService` validates every binding before Carbon registration, rejects invalid/duplicate bindings, registers in deterministic order, and rolls back partial registration.
+- **Secure fields suppress global hotkeys by macOS policy.**
+- **Sound and notification gates are pure.** `NotificationPolicy` accepts preferences and authorization state, so copy and policy test without notification center.
 
-## Key types / files
+## Key files
 
-- `Sources/FocusdoroCore/Services/NotificationService.swift` — `NotificationPresenting` protocol, `NotificationService`, `NotificationPolicy`.
-- `Sources/FocusdoroCore/Services/UpdateService.swift` — GitHub release parser/policy, SHA-256 verifier, discovery client, DMG installer, rollback helper.
-- `Sources/FocusdoroCore/Services/HotKeyService.swift` — `HotKeyRegistering` protocol, `HotKeyService`, `HotKeyError`, `HotKeyFormatter` (Carbon modifier mask ↔ display string, e.g. `⌥⌘F`).
-- `Sources/FocusdoroCore/Services/AppPreferences.swift` — `HotKeyAction`, `HotKeyBinding` (the persisted binding data; see `docs/specs/preferences-and-settings.md`).
-- `Sources/FocusdoroCore/AppLifecycleCoordinator.swift` — wires `hotKeys.onTogglePopover`/`onStartStop`, re-registers on `.focusdoroHotKeysChanged` (posted by `SettingsView` after a successful edit).
-
-## Edge cases
-
-- Registering a shortcut that's already taken by *another Focusdoro action* is caught by `validate`'s duplicate check before Carbon is even asked; taken by a *different app* is only detectable by Carbon's registration call itself failing.
-- macOS full-screen spaces owned by another app can prevent the (unrelated) completion overlay panel from appearing even though it isn't a hotkey issue — see `docs/specs/completion-and-history.md`; the completion notification is the fallback path in that case, tying notifications and the overlay together operationally.
-- Default bindings (`⌥⌘F` toggle, `⌥⌘T` start/stop) are defined in `AppPreferences.default`; both use `modifiers: 2048 | 256` (`cmdKey | optionKey`).
+- `Sources/FocusdoroCore/Services/NotificationService.swift`
+- `Sources/FocusdoroCore/Services/UpdateService.swift`
+- `Sources/FocusdoroCore/Services/HotKeyService.swift`
+- `Sources/FocusdoroCore/Services/AppPreferences.swift`
+- `Sources/FocusdoroCore/AppLifecycleCoordinator.swift`
 
 ## Test coverage
 
-- `Tests/FocusdoroCoreTests/HotKeyServiceTests.swift`, suite **"Global hot keys"** — validation (invalid/duplicate bindings), `HotKeyFormatter` display strings and Carbon modifier conversion.
-- `Tests/FocusdoroCoreTests/NotificationPolicyTests.swift` — update category/action routing.
-- `Tests/FocusdoroCoreTests/UpdateServiceTests.swift` — release/tag/URL validation, dedupe, digest verification, fixed safe error copy.
+- `Tests/FocusdoroCoreTests/HotKeyServiceTests.swift` — binding validation, Carbon formatting, notification preference/body policy.
+- `Tests/FocusdoroCoreTests/NotificationPolicyTests.swift` — update notification category/action routing.
+- `Tests/FocusdoroCoreTests/UpdateServiceTests.swift` — release parsing, tag/URL policy, digest verification, and safe error copy.
+- `Tests/FocusdoroCoreTests/AppModelTests.swift` — update discovery, automatic-install preference persistence, and installer concurrency.

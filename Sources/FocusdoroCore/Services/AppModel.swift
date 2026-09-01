@@ -675,7 +675,7 @@ public final class AppModel {
         // Remove both install surfaces immediately; notification action may still
         // arrive, but model guard makes it inert.
         if banner?.offersUpdateInstall == true {
-            banner = BannerMessage(kind: .info, text: "Preparing verified update…")
+            banner = BannerMessage(kind: .info, text: "Preparing update…")
         }
         do {
             try await updateInstaller.install(release)

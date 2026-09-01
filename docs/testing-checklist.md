@@ -61,17 +61,15 @@ None of this changes app behavior, and the package converts to an Xcode target u
 | Tick cadence | one-second ticks whenever a countdown is visible, five seconds only when idle and hidden, and sleeps aligned to the next second boundary so menu-bar digits never skip |
 | Completion orchestration | exact comment string, minute rounding, one comment per completion, idempotence, close+comment, close failure, comment retry |
 | Keychain token storage | save/read/delete, overwrite, missing token, service isolation, token absent from encoded preferences |
-| App preferences | 1500/300/900/4 defaults, cadence, zero-cadence guard, `UserDefaults` round trip |
+| App preferences | 1500/300/900/4 defaults, cadence, `UserDefaults` round trip, automatic-install and task-name notification defaults/round trips |
 | Global hot keys | binding serialization, duplicate bindings, missing-modifier rejection, registration-failure message mapping, Carbon modifier conversion |
-| Notification policy | preference + authorization gate, sound independence, body copy, blank-title fallback, system sound availability |
+| Notification policy | preference + authorization gate, sound independence, generic completion body by default, task-name opt-in, update action routing |
 | App model | routing, task selection surviving ticks, project loading and its failure fallback, persisted sort and filter, menu-bar title, stop-routes-to-confirmation, abandon keeping and logging the invested time, completion flow, retryable comment failure, disconnect keeps history, token never in preferences |
 | View rendering | every popover state, route, error state, every sort order and an empty filter, a long list on a short screen, uniform settings row widths, the completion overlay, and an overflowing task title lay out in a real `NSHostingView` at the popover width |
 | Settings round trip | a preference edited in the settings screen reaches the store and the next session, with no write when the value is unchanged |
-| Slack client | snooze minute clamping, form and JSON bodies, bearer auth, `ok:false` inside a 200, missing-scope naming, `snooze_not_active` treated as success, `429` retry, no request without a token, and no failure path carrying the token |
-| Slack status text | placeholder substitution, empty title and empty template fallbacks, truncation at Slack's 100-character limit |
-| Focus presence channels | Slack off does nothing, no token reports itself, snooze plus status for the session's length, status opt-out, release lifting both, a failed snooze lift still clearing the status, macOS Focus running the chosen shortcuts and refusing to run unconfigured |
+| Focus presence channels | macOS Focus runs chosen shortcuts, reports missing configuration, and never blocks timer |
 | Focus presence coordinator | a failing channel not stopping the others, release inert without a session, release idempotent, banner wording for one and for several failures |
-| Focus mode in the app model | starting a session engages for its length, finishing/stopping/breaking release, Slack connect storing a validated token, a rejected token discarded without leaking it, disconnect clearing everything, shortcut names offered from Shortcuts |
+| Focus mode in the app model | starting focus engages configured macOS Focus, finishing/stopping/breaking releases it, legacy credential cleanup is isolated, shortcut names come from Shortcuts |
 | Focus mode preferences | preferences written before focus mode existed still decode to the all-off default, settings round trip, macOS Focus usable only with both shortcuts picked |
 | App composition | one status item, no titled window, idempotent popover, accessory activation policy, popover sized to the screen before it is shown |
 | Login item service | `SMAppService` status mapping, enable and disable writes, a no-op re-register, approval-pending reported as on, and an unbundled process reporting unavailable |
@@ -129,10 +127,8 @@ Automated coverage cannot exercise the AppKit shell end to end. Run these by han
       session turns the Focus on within a second or two, and finishing, stopping, or
       starting a break turns it off. Deleting the shortcut afterwards shows the
       "no longer exists" banner without disturbing the running timer.
-- [ ] **Slack.** With a user token connected (`dnd:write`, `users.profile:write`),
-      starting a session snoozes Slack for the session length and sets the status;
-      ending the session lifts both. Quitting mid-session also lifts them. Revoking the
-      token in Slack shows the reconnect banner, and the token never appears in it.
+- [ ] **Notifications.** Completion notification hides task name by default. Enable task names only after accepting lock-screen and screen-share exposure; confirm generic and opted-in bodies behave as selected.
+- [ ] **Updates.** Confirm update checks notify when automatic installation is off, and enabling it remains enabled after relaunch until explicitly disabled.
 - [ ] **Timer completion.** Let a focus run out: sound plays, notification appears, and
       the overlay shows on the active display.
 - [ ] **Overlay.** Overlay is centered, dismissable with the keyboard, and auto-starts

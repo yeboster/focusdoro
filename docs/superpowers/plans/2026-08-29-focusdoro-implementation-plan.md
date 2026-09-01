@@ -1,3 +1,5 @@
+> Historical document. Todoist REST v2 details are superseded by the shipped API v1 contract in `docs/specs/todoist-sync.md`.
+
 # Focusdoro Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

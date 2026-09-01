@@ -2,78 +2,62 @@
 
 [![CI](https://github.com/yeboster/focusdoro/actions/workflows/ci.yml/badge.svg)](https://github.com/yeboster/focusdoro/actions/workflows/ci.yml)
 
-Menu-bar-only Pomodoro timer for macOS, wired to Todoist. No Dock icon, no dashboard
-window, no backend: one `NSStatusItem`, one anchored popover, and a local Core Data
-history.
+Menu-bar-only Pomodoro timer for macOS and Todoist. No Dock icon, dashboard window, or backend: one `NSStatusItem`, one anchored popover, and local Core Data history.
 
-- 25 / 5 / 15-minute cycle by default, long break every 4th focus, all configurable.
-- Focus cannot be paused. Stopping asks for confirmation and never closes the task.
-- Every finished focus posts exactly one Todoist comment:
-  `Focusdoro: 25 min focused on this task (2026-08-29 14:30).`
-- Time already invested still counts: a stopped session keeps its minutes in the local
-  history, feeds today's total, and posts them as
-  `Focusdoro: 12 min focused on this task (stopped early, 2026-08-29 14:30).`
-  Turn that off with "Log stopped sessions" in Settings.
-- Focus mode quiets the interruptions for the length of a session: it runs your own
-  Shortcuts shortcut to switch a macOS Focus on, and snoozes Slack notifications while
-  setting your Slack status ("Focusing on {task}"). Both are optional, both are lifted
-  when the session ends or a break starts, and neither can hold up the timer.
-- The Todoist token — and the Slack user token, if you connect one — lives only in the
-  macOS Keychain — never in `UserDefaults`, Core Data, logs, or exported
-  history.
-- The task picker groups by due date, priority, or project, filters by project,
-  minimum priority, and "has a date", and ranks search so whole-word matches lead.
-- The task picker is keyboard-first: the caret starts in the search field, ↑/↓ move the
-  highlight, ⏎ starts a focus on it, and ⎋ clears the search before the highlight.
-- History shows this week at a glance: seven daily bars, the busiest day accented, and
-  the minutes broken down by project. Every session snapshots its project, so the
-  breakdown survives a task being closed or moved.
-- Focusdoro can start itself at login (`SMAppService`, no helper app); System Settings
-  stays the single source of truth for that switch.
-- Timer truth is a persisted absolute deadline, so it survives relaunch and sleep and is
-  never silently extended.
+- 25 / 5 / 15-minute cycle by default, with configurable long-break cadence.
+- Focus cannot pause. Stopping asks for confirmation and never closes task.
+- Finished focus posts one measured-time comment to Todoist; stopped-session logging is configurable.
+- Todoist API v1 only. Personal API token is validated then kept only in macOS Keychain—never preferences, history, or logs.
+- macOS Focus mode runs user-selected Shortcuts when focus begins and ends. It never delays timer.
+- Task picker is keyboard-first and supports due-date, priority, project, and search filtering.
+- Local history provides daily and project summaries. Session project snapshots survive Todoist task changes.
+- Timer uses persisted absolute deadline, so sleep and relaunch do not silently extend session.
+- Left-click menu-bar icon opens popover. Right-click icon offers **Quit Focusdoro**.
 
 ## Requirements
 
-macOS 14 or later, Swift 6 toolchain. Xcode is not required.
+macOS 14 or later and Swift 6 toolchain. Xcode is not required.
 
-## Build and run
+## Build, run, and install
 
 ```bash
-make app     # assembles build/Focusdoro.app (ad-hoc signed)
-make dmg     # creates build/Focusdoro.dmg (drag Focusdoro to Applications)
-make run     # builds and launches it
-make test    # 294 unit tests
+make test    # run swift-testing suite
+make build   # debug executable
+make app     # build build/Focusdoro.app; ad-hoc signed for local use
+make dmg     # create build/Focusdoro.dmg
+make run     # build and launch local bundle
+make install # replace /Applications/Focusdoro.app and relaunch it
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same `make test` on `macos-15`, then assembles
-and verifies `build/Focusdoro.dmg`. Download the `Focusdoro-macOS-DMG` artifact, open
-the disk image, and drag Focusdoro onto the Applications shortcut.
+`make install` quits Focusdoro, deletes `/Applications/Focusdoro.app`, replaces it with local build, then opens replacement. Todoist token, local history, and in-flight timer state live outside bundle, so replacement preserves them.
 
-Launch the bundle rather than the raw binary: notification support needs a bundle
-identifier.
+Run bundled app rather than raw binary: macOS notifications and Keychain item need bundle identifier. On first launch, paste personal Todoist API token from Todoist → Settings → Integrations → Developer.
 
-On first launch, paste a personal Todoist API token
-(Todoist → Settings → Integrations → Developer). It is validated once, then stored in
-the Keychain.
+Releases and CI artifacts: [GitHub Releases](https://github.com/yeboster/focusdoro/releases). Current builds are ad-hoc signed. Their structural signature and release digest checks help detect corruption, but do not prove Developer ID publisher identity. Gatekeeper/notarization and publisher-authenticated automatic updates are not available until Developer ID signing, notarization, and signer pinning ship.
 
-Default shortcuts: `⌥⌘F` opens/closes the popover, `⌥⌘T` starts/stops the timer. Both are
-editable in Settings.
+## Privacy and updates
+
+Completion notifications hide task names by default. Enable **Show task names in notifications** only if task-title exposure on lock screens, Notification Center, screen shares, and configured notification surfaces is acceptable.
+
+Focusdoro checks GitHub for releases. **Install updates automatically** is off by default. If enabled, it stays enabled across relaunches and app replacement until switched off. Read [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md) before enabling automatic updates.
 
 ## Layout
 
 | Path | What it holds |
 | --- | --- |
 | `Sources/FocusdoroCore/Models` | Timer and Todoist value types |
-| `Sources/FocusdoroCore/Services` | Timer engine, Todoist client, Keychain, Core Data store, completion orchestration, hot keys, notifications |
+| `Sources/FocusdoroCore/Services` | Timer engine, API client, Keychain, Core Data, completion, hot keys, notifications, updates |
 | `Sources/FocusdoroCore/Views` | SwiftUI popover, task picker, settings, history, completion overlay |
 | `Sources/FocusdoroCore/DesignSystem` | Theme tokens, surfaces, button styles |
-| `Sources/Focusdoro` | `@main` executable that installs the AppKit delegate |
+| `Sources/Focusdoro` | `@main` executable installing AppKit delegate |
 | `Tests/FocusdoroCoreTests` | swift-testing suites |
 
-## Docs
+## Project docs
 
-- [Product and design spec](docs/superpowers/specs/2026-08-29-focusdoro-design.md)
-- [As-built specs](docs/specs/) — one file per feature: [focus mode](docs/specs/focus-mode.md), [launch at login](docs/specs/launch-at-login.md), [keyboard picker](docs/specs/keyboard-picker.md), [weekly stats](docs/specs/weekly-stats.md)
-- [Implementation plan](docs/superpowers/plans/2026-08-29-focusdoro-implementation-plan.md)
-- [Testing checklist and verification record](docs/testing-checklist.md)
+- [Security reporting](SECURITY.md)
+- [Privacy](PRIVACY.md)
+- [Contributing](CONTRIBUTING.md)
+- [MIT License](LICENSE)
+- [Current technical specs](docs/README.md)
+- [Testing checklist](docs/testing-checklist.md)
+- [Historical design and plans](docs/superpowers/)
