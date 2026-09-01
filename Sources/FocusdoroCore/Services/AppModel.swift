@@ -13,6 +13,7 @@ public enum PopoverRoute: Equatable, Sendable {
 public enum PendingConfirmation: Equatable, Sendable {
     case abandon
     case completeTask
+    case completePickerTask
     case disconnect
 }
 
@@ -23,11 +24,19 @@ public struct BannerMessage: Equatable, Identifiable, Sendable {
     public var text: String
     /// Session whose comment can be retried, when the banner came from a failed post.
     public var retrySessionID: UUID?
+    /// True only for update discovery, giving banner one explicit install action.
+    public var offersUpdateInstall: Bool
 
-    public init(kind: Kind, text: String, retrySessionID: UUID? = nil) {
+    public init(
+        kind: Kind,
+        text: String,
+        retrySessionID: UUID? = nil,
+        offersUpdateInstall: Bool = false
+    ) {
         self.kind = kind
         self.text = text
         self.retrySessionID = retrySessionID
+        self.offersUpdateInstall = offersUpdateInstall
     }
 }
 
@@ -79,8 +88,13 @@ public final class AppModel {
     }
 
     public var confirmation: PendingConfirmation?
+    /// Picker completion never enters timer completion flow: it closes this task only,
+    /// without creating a focus session or Todoist comment.
+    public private(set) var pendingPickerCompletionTask: TodoistTask?
     public var banner: BannerMessage?
     public var tokenDraft: String = ""
+    /// New picker task title. Cleared before any API call so stale text cannot be sent twice.
+    public var newTaskDraft: String = ""
     /// Slack user token being pasted. Cleared the moment it reaches the Keychain.
     public var slackTokenDraft: String = ""
     public private(set) var slackIsConnected = false
@@ -110,15 +124,23 @@ public final class AppModel {
     private let presenceServices: PresenceServices?
     private var presence: PresenceCoordinator? { presenceServices?.coordinator }
     private let loginItem: LoginItemManaging?
+    private let updateChecker: UpdateChecking?
+    private let updateInstaller: UpdateInstalling?
+    private var availableUpdate: UpdateRelease?
+    public private(set) var isInstallingUpdate = false
 
     /// Set by the AppKit layer; the core stays free of window ownership.
     public var presentCompletionOverlay: ((FocusCompletionSummary) -> Void)?
     public var dismissCompletionOverlay: (() -> Void)?
     public var onMenuBarTitleChange: ((String) -> Void)?
     public var onRequestPopoverClose: (() -> Void)?
+    /// AppKit terminates only after installer has staged verified replacement and
+    /// detached helper. Persisted deadline restores current session after relaunch.
+    public var onUpdateInstallStarted: (() -> Void)?
 
     private var tickTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
+    private var updateTask: Task<Void, Never>?
     private var popoverIsVisible = false
 
     public init(
@@ -131,7 +153,9 @@ public final class AppModel {
         clock: DateProviding = SystemDateProvider(),
         calendar: Calendar = .current,
         presence: PresenceServices? = nil,
-        loginItem: LoginItemManaging? = nil
+        loginItem: LoginItemManaging? = nil,
+        updateChecker: UpdateChecking? = nil,
+        updateInstaller: UpdateInstalling? = nil
     ) {
         self.sync = sync
         self.engine = engine
@@ -143,6 +167,8 @@ public final class AppModel {
         self.calendar = calendar
         self.presenceServices = presence
         self.loginItem = loginItem
+        self.updateChecker = updateChecker
+        self.updateInstaller = updateInstaller
         self.preferences = preferencesStore.preferences
         self.route = sync.hasToken ? .tasks : .connect
         // The picker's scope, ordering, and filter are user choices, so they outlive a relaunch.
@@ -163,6 +189,7 @@ public final class AppModel {
         await refreshSnapshot()
         reloadHistory()
         startTicking()
+        startUpdateChecking()
         if sync.hasToken {
             await sync.refresh()
             await orchestrator.retryPendingComments()
@@ -178,8 +205,10 @@ public final class AppModel {
         }
         tickTask?.cancel()
         eventTask?.cancel()
+        updateTask?.cancel()
         tickTask = nil
         eventTask = nil
+        updateTask = nil
     }
 
     public func handleSystemWake() async {
@@ -452,6 +481,24 @@ public final class AppModel {
         }
     }
 
+    public func createTaskAndFocus() async {
+        guard !isBusy else { return }
+        let title = newTaskDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        newTaskDraft = ""
+        guard !title.isEmpty else { return }
+
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let task = try await sync.createTask(content: title)
+            await select(task: task)
+            await startFocus()
+        } catch {
+            let message = (error as? TodoistError)?.userMessage ?? "Couldn't create the Todoist task."
+            banner = BannerMessage(kind: .error, text: message)
+        }
+    }
+
     public func select(task: TodoistTask) async {
         // The project name is resolved here, while the sync cache still has it: history
         // has to keep reading after the task is closed or the app is offline.
@@ -566,14 +613,43 @@ public final class AppModel {
         }
     }
 
+    /// Completes current focusing task and keeps session/comment completion flow intact.
     public func requestCompleteTask() {
         confirmation = .completeTask
     }
 
-    public func confirmCompleteTask() async {
+    /// Completes a picker task directly. This intentionally bypasses timer engine and
+    /// orchestrator because no focus occurred.
+    public func requestCompleteTask(_ task: TodoistTask) {
+        pendingPickerCompletionTask = task
+        confirmation = .completePickerTask
+    }
+
+    public func cancelPickerTaskCompletion() {
+        pendingPickerCompletionTask = nil
         confirmation = nil
-        await engine.completeTask()
-        await refreshSnapshot()
+    }
+
+    public func confirmCompleteTask() async {
+        let pickerTask = confirmation == .completePickerTask ? pendingPickerCompletionTask : nil
+        pendingPickerCompletionTask = nil
+        confirmation = nil
+
+        guard let pickerTask else {
+            await engine.completeTask()
+            await refreshSnapshot()
+            return
+        }
+
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            try await sync.completeTask(id: pickerTask.id)
+            banner = BannerMessage(kind: .success, text: "Closed “\(pickerTask.content)” in Todoist.")
+        } catch {
+            let message = (error as? TodoistError)?.userMessage ?? "Couldn't complete the Todoist task."
+            banner = BannerMessage(kind: .error, text: message)
+        }
     }
 
     public func disconnect() {
@@ -600,6 +676,72 @@ public final class AppModel {
     }
 
     public func dismissBanner() { banner = nil }
+
+    public func installUpdate() async {
+        guard !isInstallingUpdate, let updateInstaller else { return }
+        isInstallingUpdate = true
+        let release: UpdateRelease
+        if let availableUpdate {
+            release = availableUpdate
+        } else {
+            // Notification action may cold-launch app after announcement SHA was
+            // persisted. Resolve latest validated metadata again instead of relying on
+            // ephemeral model state.
+            do {
+                guard let resolved = try await updateChecker?.checkForInstallation() else {
+                    isInstallingUpdate = false
+                    banner = BannerMessage(kind: .warning, text: "The update is no longer available.")
+                    return
+                }
+                availableUpdate = resolved
+                release = resolved
+            } catch {
+                isInstallingUpdate = false
+                banner = BannerMessage(kind: .warning, text: "The update could not be checked.")
+                return
+            }
+        }
+        // Remove both install surfaces immediately; notification action may still
+        // arrive, but model guard makes it inert.
+        if banner?.offersUpdateInstall == true {
+            banner = BannerMessage(kind: .info, text: "Preparing verified update…")
+        }
+        do {
+            try await updateInstaller.install(release)
+            banner = BannerMessage(kind: .info, text: "Installing update…")
+            onUpdateInstallStarted?()
+        } catch {
+            isInstallingUpdate = false
+            let text = (error as? UpdateError)?.userMessage ?? "The update could not be installed."
+            banner = BannerMessage(kind: .warning, text: text, offersUpdateInstall: true)
+        }
+    }
+
+    private func startUpdateChecking() {
+        guard let updateChecker else { return }
+        updateTask?.cancel()
+        updateTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                do {
+                    if let release = try await updateChecker.check() {
+                        availableUpdate = release
+                        notifications.notifyUpdateAvailable()
+                        banner = BannerMessage(
+                            kind: .info,
+                            text: "A Focusdoro update is available.",
+                            offersUpdateInstall: true
+                        )
+                    }
+                } catch {
+                    // Update availability never changes timer, Todoist, or presentation state.
+                }
+                do {
+                    try await Task.sleep(for: .seconds(6 * 60 * 60))
+                } catch { return }
+            }
+        }
+    }
 
     // MARK: - Keyboard navigation
 

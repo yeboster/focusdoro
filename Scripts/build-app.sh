@@ -12,7 +12,14 @@ cd "$(dirname "$0")/.."
 APP_NAME="Focusdoro"
 BUNDLE_ID="so.bon.focusdoro"
 VERSION="1.0.0"
-BUILD="1"
+COMMIT_SHA="${FOCUSDORO_BUILD_COMMIT:-$(git rev-parse HEAD)}"
+if [[ ! "${COMMIT_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "invalid build commit: ${COMMIT_SHA}" >&2
+    exit 1
+fi
+# Numeric CFBundleVersion derived from first 12 hex digits; immutable source SHA is
+# carried separately because CFBundleVersion cannot contain hexadecimal letters.
+BUILD="$((16#${COMMIT_SHA:0:12}))"
 MIN_MACOS="14.0"
 
 APP="build/${APP_NAME}.app"
@@ -74,6 +81,8 @@ cat > "${CONTENTS}/Info.plist" <<PLIST
     <string>${VERSION}</string>
     <key>CFBundleVersion</key>
     <string>${BUILD}</string>
+    <key>FocusdoroBuildCommit</key>
+    <string>${COMMIT_SHA}</string>
     <key>LSMinimumSystemVersion</key>
     <string>${MIN_MACOS}</string>
     <!-- Menu-bar-only: no Dock icon, no app switcher entry (spec §2). -->

@@ -10,10 +10,12 @@ private final class SpyNotifications: NotificationPresenting, @unchecked Sendabl
     private var _focusCompleteCalls: [(String, TimerPhase)] = []
     private var _breakCompleteCalls: [TimerPhase] = []
     private var _soundCount = 0
+    private var _updateCount = 0
 
     var focusCompleteCalls: [(String, TimerPhase)] { lock.withLock { _focusCompleteCalls } }
     var breakCompleteCalls: [TimerPhase] { lock.withLock { _breakCompleteCalls } }
     var soundCount: Int { lock.withLock { _soundCount } }
+    var updateCount: Int { lock.withLock { _updateCount } }
 
     func requestAuthorizationIfNeeded() async -> Bool { true }
     func notifyFocusComplete(taskTitle: String, nextBreak: TimerPhase) {
@@ -22,7 +24,31 @@ private final class SpyNotifications: NotificationPresenting, @unchecked Sendabl
     func notifyBreakComplete(nextPhase: TimerPhase) {
         lock.withLock { _breakCompleteCalls.append(nextPhase) }
     }
+    func notifyUpdateAvailable() { lock.withLock { _updateCount += 1 } }
     func playCompletionSound() { lock.withLock { _soundCount += 1 } }
+}
+
+private actor StubUpdater: UpdateChecking, UpdateInstalling {
+    let release: UpdateRelease?
+    private(set) var installed: [UpdateRelease] = []
+
+    init(release: UpdateRelease?) { self.release = release }
+
+    func check() async throws -> UpdateRelease? { release }
+    func install(_ release: UpdateRelease) async throws { installed.append(release) }
+}
+
+private actor DelayedStubUpdater: UpdateChecking, UpdateInstalling {
+    let release: UpdateRelease?
+    private(set) var installCount = 0
+
+    init(release: UpdateRelease?) { self.release = release }
+
+    func check() async throws -> UpdateRelease? { release }
+    func install(_ release: UpdateRelease) async throws {
+        installCount += 1
+        try? await Task.sleep(for: .milliseconds(50))
+    }
 }
 
 @MainActor
@@ -36,7 +62,11 @@ fileprivate struct Harness {
     let engine: TimerEngine
     let model: AppModel
 
-    init(token: String? = "test-token") throws {
+    init(
+        token: String? = "test-token",
+        updateChecker: UpdateChecking? = nil,
+        updateInstaller: UpdateInstalling? = nil
+    ) throws {
         if let token { try tokens.saveToken(token) }
         store = try Fixture.store()
         engine = TimerEngine(clock: clock, persistence: InMemoryTimerStateStore(), preferences: preferences)
@@ -52,7 +82,9 @@ fileprivate struct Harness {
             preferencesStore: preferences,
             notifications: notifications,
             clock: clock,
-            calendar: Fixture.calendar()
+            calendar: Fixture.calendar(),
+            updateChecker: updateChecker,
+            updateInstaller: updateInstaller
         )
     }
 }
@@ -437,6 +469,93 @@ struct AppModelTests {
         #expect(harness.model.todaySummary.completedFocusSessions == 1)
     }
 
+    @Test("Creating a task clears its draft, selects it, and starts focus")
+    func createTaskAndFocus() async throws {
+        let harness = try Harness()
+        await harness.todoist.setCreatedTask(Fixture.task("new-task", "Plan release"))
+        harness.model.newTaskDraft = "  Plan release  "
+
+        await harness.model.createTaskAndFocus()
+
+        #expect(harness.model.newTaskDraft.isEmpty)
+        #expect(await harness.todoist.createdContents == ["Plan release"])
+        #expect(harness.model.sync.allTasks.map(\.id) == ["new-task"])
+        #expect(harness.model.snapshot.task?.id == "new-task")
+        #expect(harness.model.snapshot.state == .focusing)
+        #expect(harness.model.route == .timer)
+    }
+
+    @Test("Concurrent quick-add submissions create and focus only the first task")
+    func concurrentCreateTaskAndFocusIsIgnored() async throws {
+        let harness = try Harness()
+        let createdTask = Fixture.task("new-task", "Plan release")
+        await harness.todoist.setCreatedTask(createdTask)
+        await harness.todoist.setCreateTaskDelay(seconds: 0.05)
+        harness.model.newTaskDraft = "Plan release"
+
+        let firstSubmission = Task { await harness.model.createTaskAndFocus() }
+        while !harness.model.isBusy { await Task.yield() }
+        harness.model.newTaskDraft = "Duplicate release"
+        let secondSubmission = Task { await harness.model.createTaskAndFocus() }
+        await firstSubmission.value
+        await secondSubmission.value
+
+        #expect(await harness.todoist.createdContents == ["Plan release"])
+        #expect(harness.model.snapshot.task?.id == createdTask.id)
+        #expect(harness.model.snapshot.state == .focusing)
+    }
+
+    @Test("Creating a blank task is inert")
+    func blankTaskCreationIsInert() async throws {
+        let harness = try Harness()
+        harness.model.newTaskDraft = " \n\t "
+
+        await harness.model.createTaskAndFocus()
+
+        #expect(harness.model.newTaskDraft.isEmpty)
+        #expect(await harness.todoist.createdContents.isEmpty)
+        #expect(harness.model.snapshot.state == .idle)
+        #expect(harness.model.recentSessions.isEmpty)
+    }
+
+    @Test("Completing a picker task closes it without a session or comment")
+    func pickerCompletionDoesNotCreateFocusRecord() async throws {
+        let harness = try Harness()
+        let task = Fixture.task("task-1", "Write the handoff doc")
+        await harness.todoist.setTasks([task])
+        await harness.model.sync.refresh()
+
+        harness.model.requestCompleteTask(task)
+        #expect(harness.model.confirmation == .completePickerTask)
+
+        await harness.model.confirmCompleteTask()
+
+        #expect(await harness.todoist.closeCount == 1)
+        #expect(await harness.todoist.commentCount == 0)
+        #expect(harness.model.sync.allTasks.isEmpty)
+        #expect(harness.model.recentSessions.isEmpty)
+        #expect(harness.model.snapshot.state == .idle)
+        #expect(harness.model.banner?.kind == .success)
+    }
+
+    @Test("Failed picker completion preserves task without a session or comment")
+    func failedPickerCompletionPreservesTask() async throws {
+        let harness = try Harness()
+        let task = Fixture.task("task-1", "Write the handoff doc")
+        await harness.todoist.setTasks([task])
+        await harness.model.sync.refresh()
+        await harness.todoist.setCloseError(.server(status: 500))
+
+        harness.model.requestCompleteTask(task)
+        await harness.model.confirmCompleteTask()
+
+        #expect(await harness.todoist.closeCount == 1)
+        #expect(await harness.todoist.commentCount == 0)
+        #expect(harness.model.sync.allTasks.map(\.id) == ["task-1"])
+        #expect(harness.model.recentSessions.isEmpty)
+        #expect(harness.model.banner?.kind == .error)
+    }
+
     @Test("Requesting then confirming task completion closes the Todoist task, drops it locally, and bans a success message")
     func requestAndConfirmCompleteTaskEndToEnd() async throws {
         let harness = try Harness()
@@ -466,6 +585,76 @@ struct AppModelTests {
         let saved = try #require(harness.model.recentSessions.first)
         #expect(saved.status == .completed)
         #expect(saved.elapsedDurationSeconds == 600)
+    }
+
+    @Test("Installing an announced update requests app termination after staging")
+    func updateInstallRequestsTermination() async throws {
+        let release = UpdateRelease(
+            commitSHA: "0123456789abcdef0123456789abcdef01234567",
+            assetURL: URL(string: "https://example.com/Focusdoro.dmg")!,
+            assetDigest: "sha256:" + String(repeating: "a", count: 64)
+        )
+        let updater = StubUpdater(release: release)
+        let harness = try Harness(updateChecker: updater, updateInstaller: updater)
+        var terminationRequested = false
+        harness.model.onUpdateInstallStarted = { terminationRequested = true }
+
+        await harness.model.start()
+        try await waitUntil("the update is announced") {
+            harness.model.banner?.offersUpdateInstall == true
+        }
+        #expect(harness.notifications.updateCount == 1)
+
+        await harness.model.installUpdate()
+
+        #expect(await updater.installed == [release])
+        #expect(terminationRequested)
+        harness.model.shutdown()
+    }
+
+    @Test("Install action resolves release after a cold launch")
+    func coldLaunchUpdateInstallResolvesRelease() async throws {
+        let release = UpdateRelease(
+            commitSHA: "0123456789abcdef0123456789abcdef01234567",
+            assetURL: URL(string: "https://example.com/Focusdoro.dmg")!,
+            assetDigest: "sha256:" + String(repeating: "a", count: 64)
+        )
+        let updater = StubUpdater(release: release)
+        let harness = try Harness(updateChecker: updater, updateInstaller: updater)
+        var terminationRequested = false
+        harness.model.onUpdateInstallStarted = { terminationRequested = true }
+
+        // Notification action can cold-launch app before periodic check populates
+        // in-memory state. Install intent must resolve validated latest metadata again.
+        await harness.model.installUpdate()
+
+        #expect(await updater.installed == [release])
+        #expect(terminationRequested)
+    }
+
+    @Test("Concurrent install actions launch only one installer")
+    func concurrentUpdateInstallIsGuarded() async throws {
+        let release = UpdateRelease(
+            commitSHA: "0123456789abcdef0123456789abcdef01234567",
+            assetURL: URL(string: "https://example.com/Focusdoro.dmg")!,
+            assetDigest: "sha256:" + String(repeating: "a", count: 64)
+        )
+        let updater = DelayedStubUpdater(release: release)
+        let harness = try Harness(updateChecker: updater, updateInstaller: updater)
+        var terminationCount = 0
+        harness.model.onUpdateInstallStarted = { terminationCount += 1 }
+        await harness.model.start()
+        try await waitUntil("the update is announced") {
+            harness.model.banner?.offersUpdateInstall == true
+        }
+
+        async let first: Void = harness.model.installUpdate()
+        async let second: Void = harness.model.installUpdate()
+        _ = await (first, second)
+
+        #expect(await updater.installCount == 1)
+        #expect(terminationCount == 1)
+        harness.model.shutdown()
     }
 
     @Test("Waking after sleeping past the deadline completes the focus session immediately, not on the next tick")

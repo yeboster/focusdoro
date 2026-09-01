@@ -48,6 +48,25 @@ final class StubURLProtocol: URLProtocol {
 
     static var requestCount: Int { requests.count }
 
+    /// URLSession may convert HTTP bodies into streams before handing requests to a
+    /// URLProtocol, so tests inspect either representation.
+    static func body(of request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 1_024
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: bufferSize)
+            guard count > 0 else { break }
+            data.append(buffer, count: count)
+        }
+        return data
+    }
+
     private static func next(for request: URLRequest) -> Response {
         lock.lock(); defer { lock.unlock() }
         recorded.append(request)
@@ -90,9 +109,12 @@ final class StubURLProtocol: URLProtocol {
 /// exactly-once behaviour without HTTP.
 actor FakeTodoist: TodoistAPI {
     private(set) var closedTaskIDs: [String] = []
+    private(set) var createdContents: [String] = []
     private(set) var commentedTaskIDs: [String] = []
     private(set) var commentContents: [String] = []
     private var tasks: [TodoistTask] = []
+    private var createdTask: TodoistTask?
+    private var createError: TodoistError?
     private var closeError: TodoistError?
     private var commentError: TodoistError?
     private var validateError: TodoistError?
@@ -100,14 +122,19 @@ actor FakeTodoist: TodoistAPI {
     /// Artificial delay before `listTasks` returns, so a test can force one refresh to
     /// still be in flight when a second one starts (cancellation races).
     private var listTasksDelayNanoseconds: UInt64 = 0
+    /// Keeps task creation in flight while tests exercise model intent reentry.
+    private var createTaskDelayNanoseconds: UInt64 = 0
 
     init(tasks: [TodoistTask] = []) { self.tasks = tasks }
 
     func setTasks(_ value: [TodoistTask]) { tasks = value }
+    func setCreatedTask(_ value: TodoistTask?) { createdTask = value }
+    func setCreateError(_ value: TodoistError?) { createError = value }
     func setCloseError(_ value: TodoistError?) { closeError = value }
     func setCommentError(_ value: TodoistError?) { commentError = value }
     func setValidateError(_ value: TodoistError?) { validateError = value }
     func setListTasksDelay(seconds: Double) { listTasksDelayNanoseconds = UInt64(seconds * 1_000_000_000) }
+    func setCreateTaskDelay(seconds: Double) { createTaskDelayNanoseconds = UInt64(seconds * 1_000_000_000) }
 
     private(set) var listTasksCount = 0
 
@@ -115,6 +142,13 @@ actor FakeTodoist: TodoistAPI {
         listTasksCount += 1
         if listTasksDelayNanoseconds > 0 { try? await Task.sleep(nanoseconds: listTasksDelayNanoseconds) }
         return tasks
+    }
+
+    func createTask(content: String) async throws -> TodoistTask {
+        createdContents.append(content)
+        if createTaskDelayNanoseconds > 0 { try? await Task.sleep(nanoseconds: createTaskDelayNanoseconds) }
+        if let createError { throw createError }
+        return createdTask ?? TodoistTask(id: "created-\(createdContents.count)", content: content)
     }
 
     func closeTask(id: String) async throws {

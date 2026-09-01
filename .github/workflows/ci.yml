@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [main]
@@ -61,11 +64,26 @@ jobs:
           test "$(defaults read "$PWD/$APP/Contents/Info" CFBundleIdentifier)" = "so.bon.focusdoro"
           test "$(defaults read "$PWD/$APP/Contents/Info" CFBundleIconFile)" = "AppIcon"
           test "$(defaults read "$PWD/$APP/Contents/Info" LSUIElement)" = "1"
+          test "$(defaults read "$PWD/$APP/Contents/Info" FocusdoroBuildCommit)" = "$GITHUB_SHA"
           test -f "$APP/Contents/Resources/AppIcon.icns"
           codesign --verify --strict --verbose=2 "$APP"
 
       - name: Verify the disk image
         run: Tests/verify-dmg.sh build/Focusdoro.dmg
+
+      - name: Publish immutable continuous release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="continuous-${GITHUB_SHA}"
+          gh release create "$TAG" build/Focusdoro.dmg \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Focusdoro ${GITHUB_SHA::7}" \
+            --notes "Automatic build from main at ${GITHUB_SHA}." \
+            --target "$GITHUB_SHA" \
+            --latest
 
       - name: Upload the disk image
         uses: actions/upload-artifact@v5

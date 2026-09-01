@@ -2,7 +2,7 @@
 
 ## What it does
 
-Two independent OS-integration services. `NotificationService` (`Sources/FocusdoroCore/Services/NotificationService.swift`) posts local `UNUserNotificationCenter` notifications and plays a completion sound (`NSSound`) when a focus or break phase ends. `HotKeyService` (`Sources/FocusdoroCore/Services/HotKeyService.swift`) registers global keyboard shortcuts via Carbon (`RegisterEventHotKey`/`InstallEventHandler`) so the toggle-popover and start/stop actions work even when Focusdoro doesn't have focus.
+Three OS-integration services. `NotificationService` (`Sources/FocusdoroCore/Services/NotificationService.swift`) posts local `UNUserNotificationCenter` notifications and plays a completion sound (`NSSound`) when a focus or break phase ends. It also registers an **Install** action for update notifications. `GitHubUpdateService` discovers and verifies immutable continuous releases, then stages a safe replacement. `HotKeyService` (`Sources/FocusdoroCore/Services/HotKeyService.swift`) registers global keyboard shortcuts via Carbon (`RegisterEventHotKey`/`InstallEventHandler`) so the toggle-popover and start/stop actions work even when Focusdoro doesn't have focus.
 
 ## Rules it upholds
 
@@ -14,12 +14,15 @@ Two independent OS-integration services. `NotificationService` (`Sources/Focusdo
 - **A hotkey can't reach a secure input field.** Also an OS-level restriction: while a secure text field (e.g. a password field in another app) has focus system-wide, Carbon global hotkeys are suppressed by the OS. Not something Focusdoro's code works around.
 - **Notifications require a bundle identifier.** `NotificationService.defaultCenter()` returns `nil` (rather than calling `UNUserNotificationCenter.current()`, which traps) when `Bundle.main.bundleIdentifier == nil` — true for a bare `swift run` binary, false for the signed `build/Focusdoro.app` bundle produced by `make app`. Every notification-posting path checks for a non-nil `center` first.
 - **Authorization is requested once, lazily, only if notifications are enabled.** `requestAuthorizationIfNeeded()` guards on `didRequest`; `AppLifecycleCoordinator` only calls it after `model.start()` and only if `model.preferences.notificationsEnabled`.
+- **Update installs are opt-in and verified.** Launch and six-hour checks read public GitHub release metadata. One notification is posted per remote commit. Clicking **Install** downloads `Focusdoro.dmg`, checks GitHub's immutable SHA-256 asset digest, mounts read-only, verifies bundle id + embedded commit + strict code signature, stages a copy, then quits. A detached helper replaces `/Applications/Focusdoro.app`, rolls back on failure, and relaunches. Update errors never affect timer state.
+- **Continuous releases are immutable.** CI publishes `continuous-<40-character SHA>` with one `Focusdoro.dmg` after every green `main` push. Built app embeds same SHA as `FocusdoroBuildCommit`.
 - **Sound and notification gating is centralized and pure.** `NotificationPolicy.shouldNotify(preferences:authorized:)` / `shouldPlaySound(preferences:)` are free functions taking `AppPreferences` + authorization state, tested without any `UNUserNotificationCenter` involved.
 - **The completion sound is a named system sound, not a bundled asset.** `NSSound(named:)` — no binary payload shipped, and it automatically honors the system's output device and mute state.
 
 ## Key types / files
 
 - `Sources/FocusdoroCore/Services/NotificationService.swift` — `NotificationPresenting` protocol, `NotificationService`, `NotificationPolicy`.
+- `Sources/FocusdoroCore/Services/UpdateService.swift` — GitHub release parser/policy, SHA-256 verifier, discovery client, DMG installer, rollback helper.
 - `Sources/FocusdoroCore/Services/HotKeyService.swift` — `HotKeyRegistering` protocol, `HotKeyService`, `HotKeyError`, `HotKeyFormatter` (Carbon modifier mask ↔ display string, e.g. `⌥⌘F`).
 - `Sources/FocusdoroCore/Services/AppPreferences.swift` — `HotKeyAction`, `HotKeyBinding` (the persisted binding data; see `docs/specs/preferences-and-settings.md`).
 - `Sources/FocusdoroCore/AppLifecycleCoordinator.swift` — wires `hotKeys.onTogglePopover`/`onStartStop`, re-registers on `.focusdoroHotKeysChanged` (posted by `SettingsView` after a successful edit).
@@ -33,4 +36,5 @@ Two independent OS-integration services. `NotificationService` (`Sources/Focusdo
 ## Test coverage
 
 - `Tests/FocusdoroCoreTests/HotKeyServiceTests.swift`, suite **"Global hot keys"** — validation (invalid/duplicate bindings), `HotKeyFormatter` display strings and Carbon modifier conversion.
-- `Tests/FocusdoroCoreTests/HotKeyServiceTests.swift`, suite **"Notification policy"** — `NotificationPolicy.shouldNotify`/`shouldPlaySound`/`focusCompleteBody` as pure functions over `AppPreferences`.
+- `Tests/FocusdoroCoreTests/NotificationPolicyTests.swift` — update category/action routing.
+- `Tests/FocusdoroCoreTests/UpdateServiceTests.swift` — release/tag/URL validation, dedupe, digest verification, fixed safe error copy.

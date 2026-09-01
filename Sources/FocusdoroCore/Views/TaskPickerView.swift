@@ -17,6 +17,7 @@ public struct TaskPickerView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             header
+            quickAdd
             searchField
             scopePicker
             controls
@@ -41,6 +42,25 @@ public struct TaskPickerView: View {
             .accessibilityLabel("Refresh tasks")
             .disabled(sync.loadState == .loading)
         }
+    }
+
+    private var quickAdd: some View {
+        HStack(spacing: Theme.Space.s) {
+            TextField("New Todoist task", text: $model.newTaskDraft)
+                .textFieldStyle(.plain)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .disabled(model.isBusy)
+                .onSubmit { Task { await model.createTaskAndFocus() } }
+            Button("Create & focus") {
+                Task { await model.createTaskAndFocus() }
+            }
+            .buttonStyle(SecondaryActionStyle())
+            .disabled(model.newTaskDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isBusy)
+        }
+        .padding(.horizontal, Theme.Space.s + 2)
+        .frame(height: 32)
+        .cardSurface(radius: Theme.Radius.chip)
     }
 
     private var searchField: some View {
@@ -281,6 +301,7 @@ public struct TaskPickerView: View {
                                 isProjectFiltered: model.taskFilter.projectID == task.projectID,
                                 isHighlighted: model.highlightedTaskID == task.id,
                                 select: { Task { await model.select(task: task) } },
+                                complete: { model.requestCompleteTask(task) },
                                 filterByProject: {
                                     // Tapping the chip toggles the project filter.
                                     model.taskFilter.projectID = model.taskFilter.projectID == task.projectID ? nil : task.projectID
@@ -339,6 +360,7 @@ struct PickerTaskRow: View {
     let isProjectFiltered: Bool
     var isHighlighted: Bool = false
     let select: () -> Void
+    let complete: () -> Void
     let filterByProject: () -> Void
 
     private var priority: TaskPriority { TaskPriority(wireValue: task.priority) }
@@ -372,6 +394,15 @@ struct PickerTaskRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityHint("Starts a focus session on this task")
+
+            Button(action: complete) {
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Complete \(task.content)")
+            .accessibilityHint("Closes task in Todoist without logging focus time")
 
             if let projectName {
                 Button(action: filterByProject) {

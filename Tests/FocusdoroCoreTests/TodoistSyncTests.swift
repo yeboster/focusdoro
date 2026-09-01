@@ -211,6 +211,51 @@ struct TodoistSyncTests {
 
     // MARK: - Local mutation
 
+    @Test("Creating a task inserts it into cache and groups")
+    func createTaskUpdatesCacheAndGroups() async throws {
+        let (sync, todoist, _) = makeSync(token: "t")
+        await todoist.setCreatedTask(Fixture.task("new", "Plan release", due: "2026-08-29"))
+
+        let task = try await sync.createTask(content: "Plan release")
+
+        #expect(task.id == "new")
+        #expect(sync.allTasks.map(\.id) == ["new"])
+        #expect(sync.groups.today.map(\.id) == ["new"])
+        #expect(await todoist.createdContents == ["Plan release"])
+    }
+
+    @Test("Completing a task removes it only after API success")
+    func completeTaskRemovesAfterAPISuccess() async throws {
+        let (sync, todoist, _) = makeSync(tasks: [Fixture.task("1", "Ship it", due: "2026-08-29")], token: "t")
+        await sync.refresh()
+
+        try await sync.completeTask(id: "1")
+
+        #expect(await todoist.closedTaskIDs == ["1"])
+        #expect(sync.allTasks.isEmpty)
+        #expect(sync.groups.today.isEmpty)
+    }
+
+    @Test("Failed create and complete preserve cache")
+    func failedMutationsPreserveCache() async throws {
+        let (sync, todoist, _) = makeSync(tasks: [Fixture.task("1", "Ship it", due: "2026-08-29")], token: "t")
+        await sync.refresh()
+        await todoist.setCreateError(.server(status: 500))
+
+        await #expect(throws: TodoistError.server(status: 500)) {
+            _ = try await sync.createTask(content: "Plan release")
+        }
+        #expect(sync.allTasks.map(\.id) == ["1"])
+        #expect(sync.groups.today.map(\.id) == ["1"])
+
+        await todoist.setCloseError(.server(status: 500))
+        await #expect(throws: TodoistError.server(status: 500)) {
+            try await sync.completeTask(id: "1")
+        }
+        #expect(sync.allTasks.map(\.id) == ["1"])
+        #expect(sync.groups.today.map(\.id) == ["1"])
+    }
+
     @Test("Removing a task locally drops it from both the flat list and its group")
     func removeLocallyUpdatesGroupsToo() async {
         let (sync, _, _) = makeSync(tasks: [Fixture.task("1", "Ship it", due: "2026-08-29")], token: "t")
@@ -325,6 +370,7 @@ private final class FailingTodoist: TodoistAPI, @unchecked Sendable {
     init(error: TodoistError) { self.error = error }
     func listTasks() async throws -> [TodoistTask] { throw error }
     func listProjects() async throws -> [TodoistProject] { throw error }
+    func createTask(content: String) async throws -> TodoistTask { throw error }
     func closeTask(id: String) async throws { throw error }
     func addComment(taskID: String, content: String) async throws -> TodoistComment { throw error }
     func validateToken() async throws { throw error }

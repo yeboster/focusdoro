@@ -3,6 +3,7 @@ import Foundation
 public protocol TodoistAPI: Sendable {
     func listTasks() async throws -> [TodoistTask]
     func listProjects() async throws -> [TodoistProject]
+    func createTask(content: String) async throws -> TodoistTask
     func closeTask(id: String) async throws
     func addComment(taskID: String, content: String) async throws -> TodoistComment
     func validateToken() async throws
@@ -97,6 +98,18 @@ public final class TodoistClient: TodoistAPI, @unchecked Sendable {
             cursor = next
         }
         return projects
+    }
+
+    public func createTask(content: String) async throws -> TodoistTask {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw TodoistError.invalidResponse("Task content cannot be empty")
+        }
+        var request = try makeRequest(path: "tasks", method: "POST")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["content": trimmed])
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let (data, _) = try await perform(request, expecting: [200, 201])
+        return try decode(TodoistTask.self, from: data)
     }
 
     public func closeTask(id: String) async throws {

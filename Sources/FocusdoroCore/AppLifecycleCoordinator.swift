@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 /// Composition root. Owns every long-lived service and wires the AppKit shell to the
 /// core. Menu-bar-only: the accessory activation policy means no Dock icon and no
 /// dashboard window ever exists (spec §2).
 @MainActor
-public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate {
+public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
     public private(set) var model: AppModel!
     private var menuBar: MenuBarController!
     private let overlay = CompletionOverlayController()
@@ -38,11 +39,14 @@ public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate {
         registerHotKeys()
         observeSystemEvents()
         Task {
-            await model.start()
+            // Routing must exist before first update check can announce and persist its
+            // dedupe SHA, or fast discovery can suppress only actionable notification.
+            notificationService.registerUpdateCategory()
+            if let center = NotificationService.defaultCenter() { center.delegate = self }
             if model.preferences.notificationsEnabled {
-                // Asked on the first launch that will actually need it.
                 _ = await notificationService.requestAuthorizationIfNeeded()
             }
+            await model.start()
             if let storeError {
                 model.banner = BannerMessage(kind: .error, text: storeError)
             }
@@ -96,6 +100,7 @@ public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate {
             settings: { [preferencesStore] in preferencesStore.preferences.presence }
         )
         notificationService = NotificationService(preferences: preferencesStore)
+        let updater = GitHubUpdateService()
 
         let model = AppModel(
             sync: sync,
@@ -106,13 +111,18 @@ public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate {
             notifications: notificationService,
             clock: clock,
             presence: presence,
-            loginItem: LoginItemService()
+            loginItem: LoginItemService(),
+            updateChecker: updater,
+            updateInstaller: updater
         )
         model.presentCompletionOverlay = { [weak self] summary in
             self?.overlay.present(summary)
         }
         model.dismissCompletionOverlay = { [weak self] in
             self?.overlay.dismiss()
+        }
+        model.onUpdateInstallStarted = {
+            NSApplication.shared.terminate(nil)
         }
         overlay.onStartBreak = { [weak model] phase in
             Task { await model?.startBreak(phase) }
@@ -123,6 +133,16 @@ public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate {
 
         self.model = model
         self.menuBar = MenuBarController(model: model)
+    }
+
+    public func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        defer { completionHandler() }
+        guard NotificationPolicy.isInstallUpdateAction(response.actionIdentifier) else { return }
+        Task { @MainActor [weak self] in await self?.model.installUpdate() }
     }
 
     // MARK: - Hot keys

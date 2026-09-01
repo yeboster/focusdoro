@@ -238,6 +238,28 @@ public final class TodoistSync {
         if error == .unauthorized { connection = .tokenRejected }
     }
 
+    // MARK: - Local mutation
+
+    /// Creates on Todoist before updating local cache, so failures leave picker state
+    /// unchanged and a created task is immediately available without a refresh.
+    public func createTask(content: String) async throws -> TodoistTask {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw TodoistError.invalidResponse("Task content cannot be empty")
+        }
+        let task = try await client.createTask(content: trimmed)
+        allTasks.append(task)
+        groups = TaskFilter.group(tasks: allTasks, now: clock.now, calendar: calendar)
+        return task
+    }
+
+    /// Closes on Todoist before removing local cache entry, preserving picker state on
+    /// any API failure.
+    public func completeTask(id: String) async throws {
+        try await client.closeTask(id: id)
+        removeLocally(taskID: id)
+    }
+
     // MARK: - Conflict handling
 
     /// Refreshes and reports whether the task still exists, used before/after a close
@@ -286,6 +308,9 @@ extension TodoistSync {
 final class PreviewTodoistAPI: TodoistAPI {
     func listTasks() async throws -> [TodoistTask] { TodoistTask.previewTasks }
     func listProjects() async throws -> [TodoistProject] { TodoistProject.previewProjects }
+    func createTask(content: String) async throws -> TodoistTask {
+        TodoistTask(id: "preview-created", content: content)
+    }
     func closeTask(id: String) async throws {}
     func addComment(taskID: String, content: String) async throws -> TodoistComment {
         TodoistComment(id: "preview", taskID: taskID, content: content)

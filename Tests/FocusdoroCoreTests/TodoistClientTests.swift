@@ -53,6 +53,34 @@ struct TodoistClientTests {
         #expect(request.httpMethod == "GET")
     }
 
+    @Test("Create posts trimmed JSON content and decodes task response")
+    func createsTask() async throws {
+        StubURLProtocol.reset()
+        StubURLProtocol.enqueue(.json(#"{"id":"new-task","content":"Plan release","project_id":"p1","priority":1}"#))
+
+        let task = try await makeClient().createTask(content: "  Plan release  ")
+        #expect(task.id == "new-task")
+        #expect(task.content == "Plan release")
+
+        let request = try #require(StubURLProtocol.requests.first)
+        #expect(request.url?.absoluteString == "https://api.todoist.com/api/v1/tasks")
+        #expect(request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        let body = try #require(StubURLProtocol.body(of: request))
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: String])
+        #expect(json == ["content": "Plan release"])
+    }
+
+    @Test("Create rejects blank content before sending a request")
+    func createRejectsBlankContent() async {
+        StubURLProtocol.reset()
+
+        await #expect(throws: TodoistError.invalidResponse("Task content cannot be empty")) {
+            _ = try await makeClient().createTask(content: " \n ")
+        }
+        #expect(StubURLProtocol.requestCount == 0)
+    }
+
     @Test("Close accepts 204 No Content")
     func closeAccepts204() async throws {
         StubURLProtocol.reset()

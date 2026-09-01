@@ -47,6 +47,8 @@ public struct PopoverView: View {
             if let banner = model.banner {
                 BannerView(message: banner, onRetry: { sessionID in
                     Task { await model.retryComment(sessionID: sessionID) }
+                }, onInstallUpdate: {
+                    Task { await model.installUpdate() }
                 }, onDismiss: { model.dismissBanner() })
             }
 
@@ -140,6 +142,7 @@ public struct PopoverView: View {
 struct BannerView: View {
     let message: BannerMessage
     let onRetry: (UUID) -> Void
+    let onInstallUpdate: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
@@ -154,6 +157,12 @@ struct BannerView: View {
             Spacer(minLength: Theme.Space.xs)
             if let sessionID = message.retrySessionID {
                 Button("Retry") { onRetry(sessionID) }
+                    .buttonStyle(QuietButtonStyle())
+                    .font(Theme.Font.meta)
+                    .foregroundStyle(Theme.Palette.accent)
+            }
+            if message.offersUpdateInstall {
+                Button("Install update") { onInstallUpdate() }
                     .buttonStyle(QuietButtonStyle())
                     .font(Theme.Font.meta)
                     .foregroundStyle(Theme.Palette.accent)
@@ -219,15 +228,25 @@ private struct ConfirmationDialogs: ViewModifier {
             .confirmationDialog(
                 "Complete this task in Todoist?",
                 isPresented: Binding(
-                    get: { model.confirmation == .completeTask },
-                    set: { if !$0 { model.confirmation = nil } }
+                    get: { model.confirmation == .completeTask || model.confirmation == .completePickerTask },
+                    set: { if !$0 {
+                        if model.confirmation == .completePickerTask {
+                            model.cancelPickerTaskCompletion()
+                        } else {
+                            model.confirmation = nil
+                        }
+                    } }
                 ),
                 titleVisibility: .visible
             ) {
                 Button("Complete task") { Task { await model.confirmCompleteTask() } }
-                Button("Cancel", role: .cancel) { model.confirmation = nil }
+                Button("Cancel", role: .cancel) { model.cancelPickerTaskCompletion() }
             } message: {
-                Text("Focusdoro will close “\(model.snapshot.task?.title ?? "this task")” in Todoist and post the measured focus time as a comment.")
+                if let task = model.pendingPickerCompletionTask {
+                    Text("Focusdoro will close “\(task.content)” in Todoist. No focus session or Todoist comment will be created.")
+                } else {
+                    Text("Focusdoro will close “\(model.snapshot.task?.title ?? "this task")” in Todoist and post the measured focus time as a comment.")
+                }
             }
             .confirmationDialog(
                 "Remove the Todoist token?",

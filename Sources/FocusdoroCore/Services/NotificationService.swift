@@ -6,7 +6,12 @@ public protocol NotificationPresenting: AnyObject {
     func requestAuthorizationIfNeeded() async -> Bool
     func notifyFocusComplete(taskTitle: String, nextBreak: TimerPhase)
     func notifyBreakComplete(nextPhase: TimerPhase)
+    func notifyUpdateAvailable()
     func playCompletionSound()
+}
+
+public extension NotificationPresenting {
+    func notifyUpdateAvailable() {}
 }
 
 /// Pure preference gate, split out so it can be tested without a notification centre.
@@ -24,9 +29,16 @@ public enum NotificationPolicy {
         let subject = trimmed.isEmpty ? "your task" : "“\(trimmed)”"
         return "Focus on \(subject) is done. \(nextBreak.displayName) is \(breakMinutes) min."
     }
+
+    public static func isInstallUpdateAction(_ identifier: String) -> Bool {
+        identifier == NotificationService.installUpdateActionIdentifier
+    }
 }
 
 public final class NotificationService: NotificationPresenting {
+    public static let updateCategoryIdentifier = "FOCUSDORO_UPDATE"
+    public static let installUpdateActionIdentifier = "INSTALL_UPDATE"
+
     private let preferences: PreferencesStoring
     private let center: UNUserNotificationCenter?
     private var authorized = false
@@ -68,6 +80,32 @@ public final class NotificationService: NotificationPresenting {
 
     public func notifyBreakComplete(nextPhase: TimerPhase) {
         post(title: "Break over", body: "Pick a Todoist task and start the next focus session.")
+    }
+
+    public func registerUpdateCategory() {
+        guard let center else { return }
+        let install = UNNotificationAction(
+            identifier: Self.installUpdateActionIdentifier,
+            title: "Install",
+            options: [.foreground]
+        )
+        let category = UNNotificationCategory(
+            identifier: Self.updateCategoryIdentifier,
+            actions: [install],
+            intentIdentifiers: [],
+            options: []
+        )
+        center.setNotificationCategories([category])
+    }
+
+    public func notifyUpdateAvailable() {
+        guard let center, NotificationPolicy.shouldNotify(preferences: preferences.preferences, authorized: authorized) else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Focusdoro update available"
+        content.body = "A verified update is ready to install."
+        content.categoryIdentifier = Self.updateCategoryIdentifier
+        let request = UNNotificationRequest(identifier: "focusdoro-update", content: content, trigger: nil)
+        center.add(request, withCompletionHandler: nil)
     }
 
     private func post(title: String, body: String) {

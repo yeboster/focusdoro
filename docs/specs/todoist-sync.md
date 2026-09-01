@@ -2,7 +2,7 @@
 
 ## What it does
 
-Two collaborators talk to Todoist. `TodoistClient` (`Sources/FocusdoroCore/Services/TodoistClient.swift`) is the transport: a `URLSession`-based client for the Todoist **API v1** (`https://api.todoist.com/api/v1`), implementing the `TodoistAPI` protocol (`listTasks`, `listProjects`, `closeTask(id:)`, `addComment(taskID:content:)`, `validateToken`). `TodoistSync` (`Sources/FocusdoroCore/Services/TodoistSync.swift`) is an `@MainActor @Observable` in-memory cache of tasks/projects plus connection state (`ConnectionState`: `.disconnected`/`.connecting`/`.connected`/`.tokenRejected`) and load state (`TaskLoadState`).
+Two collaborators talk to Todoist. `TodoistClient` (`Sources/FocusdoroCore/Services/TodoistClient.swift`) is the transport: a `URLSession`-based client for the Todoist **API v1** (`https://api.todoist.com/api/v1`), implementing the `TodoistAPI` protocol (`listTasks`, `listProjects`, `createTask(content:)`, `closeTask(id:)`, `addComment(taskID:content:)`, `validateToken`). `TodoistSync` (`Sources/FocusdoroCore/Services/TodoistSync.swift`) is an `@MainActor @Observable` in-memory cache of tasks/projects plus connection state (`ConnectionState`: `.disconnected`/`.connecting`/`.connected`/`.tokenRejected`) and load state (`TaskLoadState`).
 
 `TodoistSync` refreshes only on launch, popover open, manual retry, or a completion conflict check — never on a timer, to keep the app's steady-state network and CPU footprint near zero.
 
@@ -16,6 +16,7 @@ Two collaborators talk to Todoist. `TodoistClient` (`Sources/FocusdoroCore/Servi
 - **Priority is wire-inverted.** `TaskPriority: p4=1, p3=2, p2=3, p1=4` (`Sources/FocusdoroCore/Models/TodoistModels.swift`); `label` computes `"P\(5 - rawValue)"` so wire `4` reads as the user-facing "P1". `TaskPriority.init(wireValue:)` defaults a missing/unmapped value to `.p4`.
 - **Idempotent writes.** Every `POST` carries a fresh `X-Request-Id` header, which Todoist treats as an idempotency key.
 - **Comment posting tolerates an empty success body.** `addComment` accepts `200/201/204`; an empty body still counts as posted, with a comment `id` of `""` (the field is optional downstream).
+- **Picker writes mutate cache only after server success.** Quick-add sends only trimmed task `content`, inserts returned task, then starts focus through normal selection path. Direct completion calls `closeTask`, removes task locally only after success, and creates no focus session or comment.
 - **A project-list failure doesn't blank the task list.** `TodoistSync.refresh()` fetches tasks and projects concurrently (`async let`) but only tolerates a project failure (`try?`); a task-list failure still fails the refresh.
 
 ## Key types / files
@@ -31,9 +32,10 @@ Two collaborators talk to Todoist. `TodoistClient` (`Sources/FocusdoroCore/Servi
 - `429` with a `Retry-After` header → the wait is `max(policy delay, retryAfter)`, still capped at `policy.maxDelay`.
 - Non-HTTP response (e.g. a mocked transport returning garbage) → `.invalidResponse("Non-HTTP response")`.
 - Empty/whitespace-only token passed to `connect(token:)` → short-circuits to `.failure(TodoistError.missingToken)` without touching the Keychain or network.
+- Empty/whitespace-only task creation → `.invalidResponse` before any request. Concurrent quick-add submissions are guarded while one create is in flight.
 - Cancellation mid-request is translated to `CancellationError`, not surfaced as a `TodoistError`.
 
 ## Test coverage
 
-- `Tests/FocusdoroCoreTests/TodoistClientTests.swift`, suite **"Todoist API v1 client"** (`.serialized`) — covers pagination, retry/backoff, status-code mapping including `410`→`.endpointRetired`, token validation, comment posting including the empty-body success path, and that no mapped error carries the token.
-- `Tests/FocusdoroCoreTests/TodoistSyncTests.swift`, suite **"Todoist sync"** — connect validating before saving, rollback of a rejected token, blank-token rejection without a network call, disconnect clearing the cache, unauthorized mapping to `.tokenRejected`, tolerance of a project-listing failure, the refresh cancellation race, and local removal.
+- `Tests/FocusdoroCoreTests/TodoistClientTests.swift`, suite **"Todoist API v1 client"** (`.serialized`) — covers pagination, create request/body/response, retry/backoff, status-code mapping including `410`→`.endpointRetired`, token validation, comment posting including the empty-body success path, and that no mapped error carries the token.
+- `Tests/FocusdoroCoreTests/TodoistSyncTests.swift`, suite **"Todoist sync"** — connect validating before saving, rollback of a rejected token, blank-token rejection without a network call, disconnect clearing the cache, unauthorized mapping to `.tokenRejected`, tolerance of a project-listing failure, refresh cancellation race, create insertion, direct completion removal, and write-failure cache preservation.
