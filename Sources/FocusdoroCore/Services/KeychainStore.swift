@@ -32,8 +32,8 @@ public final class KeychainStore: TokenStoring, @unchecked Sendable {
         self.account = account
     }
 
-    /// Separate service so revoking Slack never touches the Todoist entry.
-    public static var slackService: String {
+    /// Legacy service retained only so migration can delete its obsolete credential.
+    public static var legacySlackService: String {
         (Bundle.main.bundleIdentifier ?? "com.focusdoro.app") + ".slack"
     }
 

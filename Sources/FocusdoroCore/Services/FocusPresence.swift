@@ -3,7 +3,7 @@ import Foundation
 /// What a starting focus session tells the outside world about itself.
 public struct FocusPresenceContext: Equatable, Sendable {
     public var taskTitle: String
-    /// Minutes the session still has to run. Slack's snooze is expressed in minutes.
+    /// Minutes the session still has to run, rounded up for any channel that needs it.
     public var minutes: Int
     public var endsAt: Date
 
@@ -14,8 +14,8 @@ public struct FocusPresenceContext: Equatable, Sendable {
     }
 }
 
-/// One outward-facing "I am focusing" surface: macOS Focus, Slack, and whatever comes
-/// next. A channel that is switched off in preferences returns without doing anything.
+/// One outward-facing "I am focusing" surface: macOS Focus and future optional
+/// integrations. A channel switched off in preferences returns without doing anything.
 public protocol PresenceChannel: Sendable {
     /// Shown in the banner when this channel is the one that failed.
     var name: String { get }
@@ -82,7 +82,6 @@ public enum PresenceMessage {
     /// Plain language for the banner. Never interpolates a token or a raw response body.
     public static func text(for error: Error) -> String {
         switch error {
-        case let error as SlackError: return error.userMessage
         case let error as ShortcutError: return error.userMessage
         default: return "Something went wrong."
         }
@@ -97,43 +96,36 @@ public enum PresenceMessage {
     }
 }
 
-/// Everything the settings screen needs to configure focus mode, bundled so `AppModel`
-/// takes one optional collaborator instead of four.
+/// Everything `AppModel` needs to coordinate focus presence.
 public struct PresenceServices: Sendable {
     public let coordinator: PresenceCoordinator
-    public let slack: SlackAPI
-    /// Keychain entry for the Slack user token; separate from the Todoist one.
-    public let slackTokens: TokenStoring
-    public let shortcuts: ShortcutRunning
 
-    public init(
-        coordinator: PresenceCoordinator,
-        slack: SlackAPI,
-        slackTokens: TokenStoring,
-        shortcuts: ShortcutRunning
-    ) {
+    public init(coordinator: PresenceCoordinator) {
         self.coordinator = coordinator
-        self.slack = slack
-        self.slackTokens = slackTokens
-        self.shortcuts = shortcuts
     }
 
-    /// Wires the standard channels: macOS Focus through Shortcuts, plus Slack.
+    /// Wires macOS Focus through user-selected Shortcuts.
     public static func live(
-        slack: SlackAPI,
-        slackTokens: TokenStoring,
         shortcuts: ShortcutRunning = ShortcutsCommandRunner(),
         settings: @escaping @Sendable () -> FocusPresenceSettings
     ) -> PresenceServices {
-        let hasToken: @Sendable () -> Bool = { ((try? slackTokens.readToken()) ?? nil)?.isEmpty == false }
-        return PresenceServices(
+        PresenceServices(
             coordinator: PresenceCoordinator(channels: [
                 MacFocusChannel(runner: shortcuts, settings: settings),
-                SlackPresenceChannel(client: slack, settings: settings, hasToken: hasToken),
-            ]),
-            slack: slack,
-            slackTokens: slackTokens,
-            shortcuts: shortcuts
+            ])
         )
+    }
+}
+
+/// Deletes the obsolete Slack Keychain item without reading its credential. The marker
+/// is written only after deletion succeeds, so a transient Keychain error retries later.
+public enum LegacyCredentialMigrator {
+    public static func migrateIfNeeded(
+        preferences: inout AppPreferences,
+        legacySlackTokens: TokenStoring
+    ) throws {
+        guard !preferences.legacySlackCredentialRemoved else { return }
+        try legacySlackTokens.deleteToken()
+        preferences.legacySlackCredentialRemoved = true
     }
 }

@@ -90,13 +90,22 @@ public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate, @pr
         )
         let orchestrator = CompletionOrchestrator(store: sessionStore, todoist: client, clock: clock)
 
-        // Focus mode: macOS Focus through the user's Shortcuts, plus Slack DND and
-        // status. The Slack token gets its own Keychain entry, never preferences.
-        let slackTokens = KeychainStore(service: KeychainStore.slackService, account: "slack-user-token")
-        let slack = SlackClient(tokenProvider: { [slackTokens] in try slackTokens.readToken() })
+        // Focus mode runs the user's macOS Focus shortcuts. Remove the obsolete Slack
+        // credential once; migration never reads it and a failure retries next launch.
+        let legacySlackTokens = KeychainStore(
+            service: KeychainStore.legacySlackService,
+            account: "slack-user-token"
+        )
+        var preferences = preferencesStore.preferences
+        if (try? LegacyCredentialMigrator.migrateIfNeeded(
+            preferences: &preferences,
+            legacySlackTokens: legacySlackTokens
+        )) != nil {
+            preferencesStore.preferences = preferences
+        }
+        let shortcuts = ShortcutsCommandRunner()
         let presence = PresenceServices.live(
-            slack: slack,
-            slackTokens: slackTokens,
+            shortcuts: shortcuts,
             settings: { [preferencesStore] in preferencesStore.preferences.presence }
         )
         notificationService = NotificationService(preferences: preferencesStore)
@@ -111,6 +120,7 @@ public final class AppLifecycleCoordinator: NSObject, NSApplicationDelegate, @pr
             notifications: notificationService,
             clock: clock,
             presence: presence,
+            shortcuts: shortcuts,
             loginItem: LoginItemService(),
             updateChecker: updater,
             updateInstaller: updater

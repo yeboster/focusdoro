@@ -30,34 +30,21 @@ public enum HotKeyAction: String, Codable, Sendable, CaseIterable {
 }
 
 /// How a focus session announces itself outside the app. Off by default: macOS Focus
-/// needs the user to pick their Shortcuts, and Slack needs a token.
+/// needs the user to pick its Shortcuts.
 public struct FocusPresenceSettings: Codable, Equatable, Sendable {
     public var macFocusEnabled: Bool
     /// Name of a Shortcuts shortcut whose action turns the Focus on.
     public var startShortcutName: String?
     public var endShortcutName: String?
-    public var slackEnabled: Bool
-    public var slackStatusEnabled: Bool
-    /// `{task}` is replaced with the task title.
-    public var slackStatusTemplate: String
-    public var slackStatusEmoji: String
 
     public init(
         macFocusEnabled: Bool = false,
         startShortcutName: String? = nil,
-        endShortcutName: String? = nil,
-        slackEnabled: Bool = false,
-        slackStatusEnabled: Bool = true,
-        slackStatusTemplate: String = "Focusing on {task}",
-        slackStatusEmoji: String = ":tomato:"
+        endShortcutName: String? = nil
     ) {
         self.macFocusEnabled = macFocusEnabled
         self.startShortcutName = startShortcutName
         self.endShortcutName = endShortcutName
-        self.slackEnabled = slackEnabled
-        self.slackStatusEnabled = slackStatusEnabled
-        self.slackStatusTemplate = slackStatusTemplate
-        self.slackStatusEmoji = slackStatusEmoji
     }
 
     public static let `default` = FocusPresenceSettings()
@@ -95,10 +82,18 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     /// Optional for the same reason: an install written before focus mode existed
     /// decodes with nothing set and falls back to the all-off default.
     public var focusPresenceSettings: FocusPresenceSettings?
+    /// Optional on the wire so existing installations can remove obsolete Slack
+    /// credentials once without making older preferences fail to decode.
+    public var legacySlackCredentialRemovedFlag: Bool?
     /// Optional on the wire so existing installs default to manual update installation.
     public var automaticInstallUpdatesFlag: Bool?
     /// Optional on the wire so task names stay private in notifications after upgrade.
     public var showTaskNamesInNotificationsFlag: Bool?
+
+    public var legacySlackCredentialRemoved: Bool {
+        get { legacySlackCredentialRemovedFlag ?? false }
+        set { legacySlackCredentialRemovedFlag = newValue }
+    }
 
     public var automaticInstallUpdates: Bool {
         get { automaticInstallUpdatesFlag ?? false }
@@ -169,6 +164,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         taskFilterCriteria: TaskFilterCriteria? = nil,
         logsAbandonedTimeFlag: Bool? = nil,
         focusPresenceSettings: FocusPresenceSettings? = nil,
+        legacySlackCredentialRemovedFlag: Bool? = nil,
         automaticInstallUpdatesFlag: Bool? = nil,
         showTaskNamesInNotificationsFlag: Bool? = nil
     ) {
@@ -187,6 +183,7 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.taskFilterCriteria = taskFilterCriteria
         self.logsAbandonedTimeFlag = logsAbandonedTimeFlag
         self.focusPresenceSettings = focusPresenceSettings
+        self.legacySlackCredentialRemovedFlag = legacySlackCredentialRemovedFlag
         self.automaticInstallUpdatesFlag = automaticInstallUpdatesFlag
         self.showTaskNamesInNotificationsFlag = showTaskNamesInNotificationsFlag
     }
