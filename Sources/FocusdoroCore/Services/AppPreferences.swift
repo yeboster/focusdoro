@@ -95,6 +95,20 @@ public struct AppPreferences: Codable, Equatable, Sendable {
     /// Optional for the same reason: an install written before focus mode existed
     /// decodes with nothing set and falls back to the all-off default.
     public var focusPresenceSettings: FocusPresenceSettings?
+    /// Optional on the wire so existing installs default to manual update installation.
+    public var automaticInstallUpdatesFlag: Bool?
+    /// Optional on the wire so task names stay private in notifications after upgrade.
+    public var showTaskNamesInNotificationsFlag: Bool?
+
+    public var automaticInstallUpdates: Bool {
+        get { automaticInstallUpdatesFlag ?? false }
+        set { automaticInstallUpdatesFlag = newValue }
+    }
+
+    public var showTaskNamesInNotifications: Bool {
+        get { showTaskNamesInNotificationsFlag ?? false }
+        set { showTaskNamesInNotificationsFlag = newValue }
+    }
 
     /// Time already invested is real time, so the default is to log it.
     public var logsAbandonedTime: Bool {
@@ -154,7 +168,9 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         taskSortOrderID: String? = nil,
         taskFilterCriteria: TaskFilterCriteria? = nil,
         logsAbandonedTimeFlag: Bool? = nil,
-        focusPresenceSettings: FocusPresenceSettings? = nil
+        focusPresenceSettings: FocusPresenceSettings? = nil,
+        automaticInstallUpdatesFlag: Bool? = nil,
+        showTaskNamesInNotificationsFlag: Bool? = nil
     ) {
         self.focusDurationSeconds = focusDurationSeconds
         self.shortBreakDurationSeconds = shortBreakDurationSeconds
@@ -171,6 +187,8 @@ public struct AppPreferences: Codable, Equatable, Sendable {
         self.taskFilterCriteria = taskFilterCriteria
         self.logsAbandonedTimeFlag = logsAbandonedTimeFlag
         self.focusPresenceSettings = focusPresenceSettings
+        self.automaticInstallUpdatesFlag = automaticInstallUpdatesFlag
+        self.showTaskNamesInNotificationsFlag = showTaskNamesInNotificationsFlag
     }
 
     public func duration(for phase: TimerPhase) -> Int {

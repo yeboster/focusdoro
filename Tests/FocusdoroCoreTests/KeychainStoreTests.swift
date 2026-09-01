@@ -104,6 +104,8 @@ struct AppPreferencesTests {
         #expect(preferences.bindings[.togglePopover] != nil)
         #expect(preferences.bindings[.startStopTimer] != nil)
         #expect(preferences.lastSelectedTaskID == nil)
+        #expect(!preferences.automaticInstallUpdates)
+        #expect(!preferences.showTaskNamesInNotifications)
     }
 
     @Test("Break cadence returns a long break only on the cadence multiple")
@@ -133,11 +135,15 @@ struct AppPreferencesTests {
         var preferences = store.preferences
         preferences.focusDurationSeconds = 3000
         preferences.soundIdentifier = "Ping"
+        preferences.automaticInstallUpdates = true
+        preferences.showTaskNamesInNotifications = true
         store.preferences = preferences
 
         let reloaded = UserDefaultsPreferencesStore(defaults: defaults)
         #expect(reloaded.preferences.focusDurationSeconds == 3000)
         #expect(reloaded.preferences.soundIdentifier == "Ping")
+        #expect(reloaded.preferences.automaticInstallUpdates)
+        #expect(reloaded.preferences.showTaskNamesInNotifications)
     }
 
     @Test("Duration lookup covers every phase")
@@ -157,6 +163,8 @@ struct AppPreferencesTests {
         dict.removeValue(forKey: "taskSortOrderID")
         dict.removeValue(forKey: "taskFilterCriteria")
         dict.removeValue(forKey: "logsAbandonedTimeFlag")
+        dict.removeValue(forKey: "automaticInstallUpdatesFlag")
+        dict.removeValue(forKey: "showTaskNamesInNotificationsFlag")
         let olderData = try JSONSerialization.data(withJSONObject: dict)
 
         let decoded = try JSONDecoder().decode(AppPreferences.self, from: olderData)
@@ -166,6 +174,8 @@ struct AppPreferencesTests {
         #expect(decoded.taskSortOrder == .dueDate)
         #expect(decoded.taskFilter == .none)
         #expect(decoded.logsAbandonedTime == true)
+        #expect(decoded.automaticInstallUpdates == false)
+        #expect(decoded.showTaskNamesInNotifications == false)
     }
 
     @Test("A cadence of one means every completed focus session is a long break")

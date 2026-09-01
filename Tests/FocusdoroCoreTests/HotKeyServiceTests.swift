@@ -137,17 +137,35 @@ struct NotificationPolicyTests {
         #expect(!NotificationPolicy.shouldPlaySound(preferences: preferences))
     }
 
-    @Test("The focus-complete body names the task and the upcoming break")
+    @Test("The focus-complete body hides task names unless user opts in")
     func focusCompleteBody() {
-        let body = NotificationPolicy.focusCompleteBody(taskTitle: "Write the handoff doc", nextBreak: .shortBreak, breakMinutes: 5)
-        #expect(body.contains("Write the handoff doc"))
-        #expect(body.contains("5 min"))
-        #expect(body.contains(TimerPhase.shortBreak.displayName))
+        let hidden = NotificationPolicy.focusCompleteBody(
+            taskTitle: "Private roadmap",
+            nextBreak: .shortBreak,
+            breakMinutes: 5,
+            showTaskName: false
+        )
+        #expect(hidden == "Focus complete. Your 5-minute break is ready.")
+
+        let shown = NotificationPolicy.focusCompleteBody(
+            taskTitle: "Private roadmap",
+            nextBreak: .shortBreak,
+            breakMinutes: 5,
+            showTaskName: true
+        )
+        #expect(shown.contains("Private roadmap"))
+        #expect(shown.contains("5 min"))
+        #expect(shown.contains(TimerPhase.shortBreak.displayName))
     }
 
-    @Test("A blank task title falls back to neutral wording rather than empty quotes")
+    @Test("A blank opted-in task title falls back to neutral wording")
     func blankTitleFallback() {
-        let body = NotificationPolicy.focusCompleteBody(taskTitle: "   ", nextBreak: .longBreak, breakMinutes: 15)
+        let body = NotificationPolicy.focusCompleteBody(
+            taskTitle: "   ",
+            nextBreak: .longBreak,
+            breakMinutes: 15,
+            showTaskName: true
+        )
         #expect(body.contains("your task"))
         #expect(!body.contains("“”"))
         #expect(body.contains("15 min"))

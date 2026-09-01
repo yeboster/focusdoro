@@ -20,6 +20,7 @@ public struct SettingsView: View {
                 general
                 durations
                 alerts
+                updates
                 focusMode
                 shortcuts
                 account
@@ -162,8 +163,13 @@ public struct SettingsView: View {
     // MARK: - Alerts
 
     private var alerts: some View {
-        section("Alerts") {
+        section(
+            "Alerts",
+            footnote: "Task names can appear on your lock screen, in Notification Center, during screen sharing, and on notification surfaces synced by macOS."
+        ) {
             toggleRow("Notification on completion", isOn: preferences.notificationsEnabled)
+            rowDivider
+            toggleRow("Show task names in notifications", isOn: preferences.showTaskNamesInNotifications)
             rowDivider
             toggleRow("Completion sound", isOn: preferences.soundEnabled)
             if model.preferences.soundEnabled {
@@ -185,6 +191,15 @@ public struct SettingsView: View {
                     .accessibilityLabel("Preview sound")
                 }
             }
+        }
+    }
+
+    private var updates: some View {
+        section(
+            "Updates",
+            footnote: "Automatic installation stays enabled across app updates until you switch it off."
+        ) {
+            toggleRow("Install updates automatically", isOn: preferences.automaticInstallUpdates)
         }
     }
 

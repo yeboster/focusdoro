@@ -24,7 +24,15 @@ public enum NotificationPolicy {
         preferences.soundEnabled
     }
 
-    public static func focusCompleteBody(taskTitle: String, nextBreak: TimerPhase, breakMinutes: Int) -> String {
+    public static func focusCompleteBody(
+        taskTitle: String,
+        nextBreak: TimerPhase,
+        breakMinutes: Int,
+        showTaskName: Bool
+    ) -> String {
+        guard showTaskName else {
+            return "Focus complete. Your \(breakMinutes)-minute break is ready."
+        }
         let trimmed = taskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let subject = trimmed.isEmpty ? "your task" : "“\(trimmed)”"
         return "Focus on \(subject) is done. \(nextBreak.displayName) is \(breakMinutes) min."
@@ -74,7 +82,12 @@ public final class NotificationService: NotificationPresenting {
         let minutes = max(1, prefs.duration(for: nextBreak) / 60)
         post(
             title: "Focus complete",
-            body: NotificationPolicy.focusCompleteBody(taskTitle: taskTitle, nextBreak: nextBreak, breakMinutes: minutes)
+            body: NotificationPolicy.focusCompleteBody(
+                taskTitle: taskTitle,
+                nextBreak: nextBreak,
+                breakMinutes: minutes,
+                showTaskName: prefs.showTaskNamesInNotifications
+            )
         )
     }
 
