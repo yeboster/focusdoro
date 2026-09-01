@@ -36,4 +36,4 @@ Focusdoro does not connect to Slack, store Slack tokens, or send task data to Sl
 
 ## Control choices
 
-Use Settings to manage notification permission, task-name display, update installation, Todoist connection, Focus shortcuts, and local preferences. To remove all local data, quit Focusdoro and remove its Application Support data and any Keychain entry through Keychain Access.
+Use Settings to manage notification permission, task-name display, update installation, Todoist connection, Focus shortcuts, and local preferences. To remove all local data, follow full reset steps above: quit Focusdoro, remove its Application Support data, run `defaults delete so.bon.focusdoro` to remove its UserDefaults state, and remove any Keychain entry through Keychain Access.
