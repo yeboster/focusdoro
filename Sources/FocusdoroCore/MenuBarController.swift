@@ -14,16 +14,33 @@ public enum MenuBarClick: Equatable, Sendable {
 /// double hotkey press or a click while already open cannot create a second popover.
 @MainActor
 public final class MenuBarController: NSObject, NSPopoverDelegate {
+    public static let quitMenuTitle = "Quit Focusdoro"
+
     private let model: AppModel
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
     private let terminate: @MainActor () -> Void
+    private let monitorsExternalClicks: Bool
+    private let animatesPopover: Bool
+    private let popoverBehavior: NSPopover.Behavior
     private var hosting: NSHostingController<PopoverRoot>!
+    /// Tracks presentation intent; AppKit's transient-popover window can report false
+    /// during its close animation, while click routing still needs deterministic state.
+    private var popoverIsOpen = false
     /// Closes the popover when the user clicks anywhere else.
     private var eventMonitor: Any?
 
-    public init(model: AppModel, terminate: @escaping @MainActor () -> Void = { NSApp.terminate(nil) }) {
+    public init(
+        model: AppModel,
+        monitorsExternalClicks: Bool = true,
+        animatesPopover: Bool = true,
+        popoverBehavior: NSPopover.Behavior = .transient,
+        terminate: @escaping @MainActor () -> Void = { NSApp.terminate(nil) }
+    ) {
         self.model = model
+        self.monitorsExternalClicks = monitorsExternalClicks
+        self.animatesPopover = animatesPopover
+        self.popoverBehavior = popoverBehavior
         self.terminate = terminate
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
@@ -83,18 +100,23 @@ public final class MenuBarController: NSObject, NSPopoverDelegate {
     }
 
     public var statusContextMenuItemTitles: [String] {
-        ["Quit Focusdoro"]
+        makeStatusContextMenu().items.compactMap(\.title)
     }
 
     public func invokeQuitAction() {
         terminate()
     }
 
-    private func showQuitMenu() {
+    private func makeStatusContextMenu() -> NSMenu {
         let menu = NSMenu()
-        let quit = NSMenuItem(title: "Quit Focusdoro", action: #selector(quitFromStatusMenu), keyEquivalent: "q")
+        let quit = NSMenuItem(title: Self.quitMenuTitle, action: #selector(quitFromStatusMenu), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
+        return menu
+    }
+
+    private func showQuitMenu() {
+        let menu = makeStatusContextMenu()
         statusItem.menu = menu
         defer { statusItem.menu = nil }
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
@@ -107,8 +129,8 @@ public final class MenuBarController: NSObject, NSPopoverDelegate {
     // MARK: - Popover
 
     private func configurePopover() {
-        popover.behavior = .transient
-        popover.animates = true
+        popover.behavior = popoverBehavior
+        popover.animates = animatesPopover
         popover.delegate = self
         // Transparent so the SwiftUI surface owns the rounded corner and border.
         hosting = NSHostingController(rootView: PopoverRoot(model: model, maxHeight: Self.availableHeight()))
@@ -142,7 +164,7 @@ public final class MenuBarController: NSObject, NSPopoverDelegate {
     /// True once `start()` has claimed the single status item.
     public var hasStatusItem: Bool { statusItem.button != nil }
 
-    public var isPopoverShown: Bool { popover.isShown }
+    public var isPopoverShown: Bool { popoverIsOpen }
 
     /// Exposed for tests: the size the popover was given before it was shown.
     public var popoverContentSize: NSSize { popover.contentSize }
@@ -151,13 +173,13 @@ public final class MenuBarController: NSObject, NSPopoverDelegate {
     /// so a run never leaves an orphaned item in the menu bar.
     public func shutdown() {
         stopEventMonitor()
-        if popover.isShown { popover.performClose(nil) }
+        if popoverIsOpen { popover.close() }
         popover.contentViewController = nil
         NSStatusBar.system.removeStatusItem(statusItem)
     }
 
     public func togglePopover() {
-        popover.isShown ? closePopover() : openPopover()
+        popoverIsOpen ? closePopover() : openPopover()
     }
 
     /// How far below the status item the popover sits. The default anchor tucks the
@@ -166,24 +188,27 @@ public final class MenuBarController: NSObject, NSPopoverDelegate {
     private static let popoverGap: CGFloat = 6
 
     public func openPopover() {
-        guard !popover.isShown, let button = statusItem.button else { return }
+        guard !popoverIsOpen, let button = statusItem.button else { return }
+        // An accessory app is inactive by default. Activate before showing a transient
+        // popover: activating afterward can make AppKit immediately dismiss it.
+        NSApp.activate(ignoringOtherApps: true)
         sizePopover(for: button)
         let anchor = button.bounds.offsetBy(dx: 0, dy: -Self.popoverGap)
         popover.show(relativeTo: anchor, of: button, preferredEdge: .minY)
-        // An accessory app is not active by default, and an inactive app's window never
-        // becomes key — which is what stops ⌘V from reaching the token field.
-        NSApp.activate(ignoringOtherApps: true)
+        popoverIsOpen = true
         popover.contentViewController?.view.window?.makeKey()
         startEventMonitor()
         Task { await model.popoverDidOpen() }
     }
 
     public func closePopover() {
-        guard popover.isShown else { return }
-        popover.performClose(nil)
+        guard popoverIsOpen else { return }
+        popoverIsOpen = false
+        popover.close()
     }
 
     private func startEventMonitor() {
+        guard monitorsExternalClicks else { return }
         stopEventMonitor()
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor in self?.closePopover() }
@@ -198,6 +223,7 @@ public final class MenuBarController: NSObject, NSPopoverDelegate {
     // MARK: - NSPopoverDelegate
 
     public func popoverDidClose(_ notification: Notification) {
+        popoverIsOpen = false
         stopEventMonitor()
         model.popoverDidClose()
     }

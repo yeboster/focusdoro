@@ -59,7 +59,7 @@ fileprivate struct Harness {
     let clock = MutableDateProvider(now: Fixture.date("2026-08-29 14:00:00"))
     let todoist = FakeTodoist()
     let tokens = InMemoryTokenStore()
-    let preferences = InMemoryPreferencesStore()
+    let preferences: PreferencesStoring
     let notifications = SpyNotifications()
     let store: SessionStore
     let engine: TimerEngine
@@ -67,12 +67,14 @@ fileprivate struct Harness {
 
     init(
         token: String? = "test-token",
+        preferences: PreferencesStoring? = nil,
         updateChecker: UpdateChecking? = nil,
         updateInstaller: UpdateInstalling? = nil
     ) throws {
+        self.preferences = preferences ?? InMemoryPreferencesStore()
         if let token { try tokens.saveToken(token) }
         store = try Fixture.store()
-        engine = TimerEngine(clock: clock, persistence: InMemoryTimerStateStore(), preferences: preferences)
+        engine = TimerEngine(clock: clock, persistence: InMemoryTimerStateStore(), preferences: self.preferences)
         let sync = TodoistSync(client: todoist, tokenStore: tokens, clock: clock, calendar: Fixture.calendar())
         let orchestrator = CompletionOrchestrator(
             store: store, todoist: todoist, clock: clock, timeZone: Fixture.calendar().timeZone
@@ -82,7 +84,7 @@ fileprivate struct Harness {
             engine: engine,
             orchestrator: orchestrator,
             store: store,
-            preferencesStore: preferences,
+            preferencesStore: self.preferences,
             notifications: notifications,
             clock: clock,
             calendar: Fixture.calendar(),
@@ -631,22 +633,34 @@ struct AppModelTests {
         harness.model.shutdown()
     }
 
-    @Test("Automatic installation remains enabled after staging an update")
+    @Test("Automatic installation remains enabled after staging and relaunch")
     func automaticUpdateInstallationPreferenceSurvivesStaging() async throws {
+        let suiteName = "focusdoro.tests.update-install.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         let release = UpdateRelease(
             commitSHA: "0123456789abcdef0123456789abcdef01234567",
             assetURL: URL(string: "https://example.com/Focusdoro.dmg")!,
             assetDigest: "sha256:" + String(repeating: "a", count: 64)
         )
         let updater = DelayedStubUpdater(release: release)
-        let harness = try Harness(updateChecker: updater, updateInstaller: updater)
+        let preferences = UserDefaultsPreferencesStore(defaults: defaults)
+        let harness = try Harness(
+            preferences: preferences,
+            updateChecker: updater,
+            updateInstaller: updater
+        )
         harness.model.preferences.automaticInstallUpdates = true
 
         await harness.model.start()
         try await waitUntil("the update starts installing") { harness.model.isInstallingUpdate }
-
-        #expect(harness.preferences.preferences.automaticInstallUpdates)
         harness.model.shutdown()
+
+        // Recreate persistent store as replacement app does on next launch. The update
+        // flow must not reset the explicit opt-in while staging its replacement.
+        let relaunchedPreferences = UserDefaultsPreferencesStore(defaults: defaults)
+        #expect(relaunchedPreferences.preferences.automaticInstallUpdates)
     }
 
     @Test("Installing an announced update requests app termination after staging")
@@ -743,7 +757,7 @@ struct MenuBarClickTests {
     }
 }
 
-@Suite("App composition", .enabled(if: TestEnvironment.hasWindowServer))
+@Suite("App composition", .enabled(if: TestEnvironment.hasWindowServer), .serialized)
 @MainActor
 struct AppCompositionSmokeTests {
     @Test("Starting the menu bar controller creates exactly one status item and no window")
@@ -772,19 +786,28 @@ struct AppCompositionSmokeTests {
         #expect(!controller.isPopoverShown)
     }
 
-    @Test("Menu bar keeps left popover click and exposes right-click Quit")
+    @Test("Menu bar routes real left clicks to the popover and exposes right-click Quit")
     func menuBarClickActions() throws {
         let harness = try Harness()
         var quitCount = 0
-        let controller = MenuBarController(model: harness.model, terminate: { quitCount += 1 })
+        let controller = MenuBarController(
+            model: harness.model,
+            monitorsExternalClicks: false,
+            animatesPopover: false,
+            popoverBehavior: .applicationDefined,
+            terminate: { quitCount += 1 }
+        )
         controller.start()
         defer { controller.shutdown() }
 
-        #expect(controller.statusContextMenuItemTitles == ["Quit Focusdoro"])
+        #expect(controller.statusContextMenuItemTitles == [MenuBarController.quitMenuTitle])
 
-        // Pure routing test covers left-click behavior without racing other WindowServer
-        // tests that may own the transient popover at the same instant.
-        #expect(MenuBarClick.action(for: .leftMouseUp) == .togglePopover)
+        controller.handleStatusItemClick(eventType: .leftMouseUp)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        #expect(controller.isPopoverShown)
+        controller.handleStatusItemClick(eventType: .leftMouseUp)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        #expect(!controller.isPopoverShown)
 
         controller.invokeQuitAction()
         #expect(quitCount == 1)
