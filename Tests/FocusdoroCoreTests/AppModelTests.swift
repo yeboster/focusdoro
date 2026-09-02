@@ -478,15 +478,19 @@ struct AppModelTests {
     func createTaskAndFocus() async throws {
         let harness = try Harness()
         await harness.todoist.setCreatedTask(Fixture.task("new-task", "Plan release"))
+        harness.model.setPlannedFocus(minutes: 40)
         harness.model.newTaskDraft = "  Plan release  "
 
         await harness.model.createTaskAndFocus()
 
         #expect(harness.model.newTaskDraft.isEmpty)
         #expect(await harness.todoist.createdContents == ["Plan release"])
+        #expect(await harness.todoist.createdDueDatetimes == [Fixture.date("2026-08-29 14:00:00")])
+        #expect(await harness.todoist.createdDurationMinutes == [40])
         #expect(harness.model.sync.allTasks.map(\.id) == ["new-task"])
         #expect(harness.model.snapshot.task?.id == "new-task")
         #expect(harness.model.snapshot.state == .focusing)
+        #expect(harness.model.snapshot.plannedSeconds == 2400)
         #expect(harness.model.route == .timer)
     }
 

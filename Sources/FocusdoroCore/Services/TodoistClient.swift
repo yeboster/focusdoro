@@ -3,7 +3,7 @@ import Foundation
 public protocol TodoistAPI: Sendable {
     func listTasks() async throws -> [TodoistTask]
     func listProjects() async throws -> [TodoistProject]
-    func createTask(content: String) async throws -> TodoistTask
+    func createTask(content: String, dueDatetime: Date?, durationMinutes: Int?) async throws -> TodoistTask
     func closeTask(id: String) async throws
     func addComment(taskID: String, content: String) async throws -> TodoistComment
     func validateToken() async throws
@@ -100,13 +100,27 @@ public final class TodoistClient: TodoistAPI, @unchecked Sendable {
         return projects
     }
 
-    public func createTask(content: String) async throws -> TodoistTask {
+    public func createTask(
+        content: String,
+        dueDatetime: Date? = nil,
+        durationMinutes: Int? = nil
+    ) async throws -> TodoistTask {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw TodoistError.invalidResponse("Task content cannot be empty")
         }
+        var body: [String: Any] = ["content": trimmed]
+        if let dueDatetime {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime]
+            body["due_datetime"] = formatter.string(from: dueDatetime)
+        }
+        if let durationMinutes {
+            body["duration"] = durationMinutes
+            body["duration_unit"] = "minute"
+        }
         var request = try makeRequest(path: "tasks", method: "POST")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["content": trimmed])
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         let (data, _) = try await perform(request, expecting: [200, 201])
         return try decode(TodoistTask.self, from: data)

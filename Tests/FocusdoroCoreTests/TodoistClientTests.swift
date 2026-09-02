@@ -53,12 +53,17 @@ struct TodoistClientTests {
         #expect(request.httpMethod == "GET")
     }
 
-    @Test("Create posts trimmed JSON content and decodes task response")
-    func createsTask() async throws {
+    @Test("Create posts scheduled start and task duration")
+    func createsScheduledTask() async throws {
         StubURLProtocol.reset()
         StubURLProtocol.enqueue(.json(#"{"id":"new-task","content":"Plan release","project_id":"p1","priority":1}"#))
 
-        let task = try await makeClient().createTask(content: "  Plan release  ")
+        let start = Fixture.date("2026-08-29 15:00:00")
+        let task = try await makeClient().createTask(
+            content: "  Plan release  ",
+            dueDatetime: start,
+            durationMinutes: 25
+        )
         #expect(task.id == "new-task")
         #expect(task.content == "Plan release")
 
@@ -67,8 +72,11 @@ struct TodoistClientTests {
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         let body = try #require(StubURLProtocol.body(of: request))
-        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: String])
-        #expect(json == ["content": "Plan release"])
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["content"] as? String == "Plan release")
+        #expect(json["due_datetime"] as? String == "2026-08-29T14:00:00Z")
+        #expect(json["duration"] as? Int == 25)
+        #expect(json["duration_unit"] as? String == "minute")
     }
 
     @Test("Create rejects blank content before sending a request")

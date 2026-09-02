@@ -458,11 +458,20 @@ public final class AppModel {
         newTaskDraft = ""
         guard !title.isEmpty else { return }
 
+        let focusStart = clock.now
+        let focusMinutes = plannedFocusMinutes
         isBusy = true
         defer { isBusy = false }
         do {
-            let task = try await sync.createTask(content: title)
+            let task = try await sync.createTask(
+                content: title,
+                dueDatetime: focusStart,
+                durationMinutes: focusMinutes
+            )
             await select(task: task)
+            // Selecting a different task normally clears a length chosen for the old task.
+            // Here that length belongs to the task just created, so restore it before start.
+            setPlannedFocus(minutes: focusMinutes)
             await startFocus()
         } catch {
             let message = (error as? TodoistError)?.userMessage ?? "Couldn't create the Todoist task."

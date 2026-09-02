@@ -370,7 +370,7 @@ private final class FailingTodoist: TodoistAPI, @unchecked Sendable {
     init(error: TodoistError) { self.error = error }
     func listTasks() async throws -> [TodoistTask] { throw error }
     func listProjects() async throws -> [TodoistProject] { throw error }
-    func createTask(content: String) async throws -> TodoistTask { throw error }
+    func createTask(content: String, dueDatetime: Date?, durationMinutes: Int?) async throws -> TodoistTask { throw error }
     func closeTask(id: String) async throws { throw error }
     func addComment(taskID: String, content: String) async throws -> TodoistComment { throw error }
     func validateToken() async throws { throw error }

@@ -110,6 +110,8 @@ final class StubURLProtocol: URLProtocol {
 actor FakeTodoist: TodoistAPI {
     private(set) var closedTaskIDs: [String] = []
     private(set) var createdContents: [String] = []
+    private(set) var createdDueDatetimes: [Date?] = []
+    private(set) var createdDurationMinutes: [Int?] = []
     private(set) var commentedTaskIDs: [String] = []
     private(set) var commentContents: [String] = []
     private var tasks: [TodoistTask] = []
@@ -144,8 +146,10 @@ actor FakeTodoist: TodoistAPI {
         return tasks
     }
 
-    func createTask(content: String) async throws -> TodoistTask {
+    func createTask(content: String, dueDatetime: Date?, durationMinutes: Int?) async throws -> TodoistTask {
         createdContents.append(content)
+        createdDueDatetimes.append(dueDatetime)
+        createdDurationMinutes.append(durationMinutes)
         if createTaskDelayNanoseconds > 0 { try? await Task.sleep(nanoseconds: createTaskDelayNanoseconds) }
         if let createError { throw createError }
         return createdTask ?? TodoistTask(id: "created-\(createdContents.count)", content: content)

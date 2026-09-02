@@ -242,12 +242,20 @@ public final class TodoistSync {
 
     /// Creates on Todoist before updating local cache, so failures leave picker state
     /// unchanged and a created task is immediately available without a refresh.
-    public func createTask(content: String) async throws -> TodoistTask {
+    public func createTask(
+        content: String,
+        dueDatetime: Date? = nil,
+        durationMinutes: Int? = nil
+    ) async throws -> TodoistTask {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw TodoistError.invalidResponse("Task content cannot be empty")
         }
-        let task = try await client.createTask(content: trimmed)
+        let task = try await client.createTask(
+            content: trimmed,
+            dueDatetime: dueDatetime,
+            durationMinutes: durationMinutes
+        )
         allTasks.append(task)
         groups = TaskFilter.group(tasks: allTasks, now: clock.now, calendar: calendar)
         return task
@@ -308,7 +316,7 @@ extension TodoistSync {
 final class PreviewTodoistAPI: TodoistAPI {
     func listTasks() async throws -> [TodoistTask] { TodoistTask.previewTasks }
     func listProjects() async throws -> [TodoistProject] { TodoistProject.previewProjects }
-    func createTask(content: String) async throws -> TodoistTask {
+    func createTask(content: String, dueDatetime: Date?, durationMinutes: Int?) async throws -> TodoistTask {
         TodoistTask(id: "preview-created", content: content)
     }
     func closeTask(id: String) async throws {}
